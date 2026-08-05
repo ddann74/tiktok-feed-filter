@@ -48,6 +48,15 @@ class SettingsRepository(context: Context) {
         get() = prefs.getBoolean(KEY_DIAGNOSTIC_LOGGING_ENABLED, false)
         set(value) = prefs.edit().putBoolean(KEY_DIAGNOSTIC_LOGGING_ENABLED, value).apply()
 
+    /** Whether a blocked creator's Live room should be auto-skipped the same way their
+      * normal videos are - on by default for consistency with blocked-creator skipping,
+      * but kept as its own toggle (rather than folded into isBlockedCreatorSkipEnabled)
+      * since swiping away from a Live room is a slightly different action than skipping
+      * a video, and this is new/less-tested territory (see README's Live streams section). */
+    var isLiveStreamSkipEnabled: Boolean
+        get() = prefs.getBoolean(KEY_LIVE_STREAM_SKIP_ENABLED, true)
+        set(value) = prefs.edit().putBoolean(KEY_LIVE_STREAM_SKIP_ENABLED, value).apply()
+
     /** Which app package(s) the service is allowed to read/act on - a list (not one value)
       * since TikTok ships under different package names by region/variant (see README). */
     var targetPackages: List<String>
@@ -86,10 +95,35 @@ class SettingsRepository(context: Context) {
         get() = parseList(prefs.getString(KEY_DOWNLOAD_OPTION_KEYWORDS, null) ?: DEFAULT_DOWNLOAD_OPTION_KEYWORDS.joinToString(","))
         set(value) = prefs.edit().putString(KEY_DOWNLOAD_OPTION_KEYWORDS, joinList(value)).apply()
 
+    /** Text TikTok renders on a Live room screen that a normal video doesn't - used to
+      * tell the two states apart (see FilterEngine.isLiveStream). Just "LIVE" by default,
+      * the badge shown on every Live room; editable in case TikTok ever renders it
+      * differently. */
+    var liveIndicatorKeywords: List<String>
+        get() = parseList(prefs.getString(KEY_LIVE_INDICATOR_KEYWORDS, null) ?: DEFAULT_LIVE_INDICATOR_KEYWORDS.joinToString(","))
+        set(value) = prefs.edit().putString(KEY_LIVE_INDICATOR_KEYWORDS, joinList(value)).apply()
+
+    /** The entry point into a Live room's own options/report menu - kept as its own list,
+      * separate from [moreOptionsKeywords], because a Live room's menu is opened from a
+      * different place on screen (typically the host's avatar/username area, not a video's
+      * "..." button) and may use different wording. Once open, blocking from there is
+      * assumed to reuse the same "Block" / confirm wording as a normal video (see
+      * [liveBlockActionStages]) - split this out into its own list too if that turns out
+      * not to hold on a real device. */
+    var liveMoreOptionsKeywords: List<String>
+        get() = parseList(prefs.getString(KEY_LIVE_MORE_OPTIONS_KEYWORDS, null) ?: DEFAULT_LIVE_MORE_OPTIONS_KEYWORDS.joinToString(","))
+        set(value) = prefs.edit().putString(KEY_LIVE_MORE_OPTIONS_KEYWORDS, joinList(value)).apply()
+
     /** The full tap sequence for "really block this creator in TikTok": open the video's
       * own options menu, tap Block, tap the confirm dialog's Block button. */
     fun blockActionStages(): List<List<String>> =
         listOf(moreOptionsKeywords, blockOptionKeywords, blockConfirmKeywords)
+
+    /** Same shape as [blockActionStages], but for a Live room - only the first stage
+      * (how you open the menu) differs; the Block option and confirm dialog are assumed
+      * to be worded the same as on a normal video (see [liveMoreOptionsKeywords]'s doc). */
+    fun liveBlockActionStages(): List<List<String>> =
+        listOf(liveMoreOptionsKeywords, blockOptionKeywords, blockConfirmKeywords)
 
     /** The full tap sequence for "download this video via TikTok's own Save option":
       * open the options menu, tap Save/Download. No confirm step - TikTok's own save
@@ -146,6 +180,7 @@ class SettingsRepository(context: Context) {
         private const val KEY_REAL_BLOCK_ENABLED = "real_block_automation_enabled"
         private const val KEY_OVERLAY_ENABLED = "overlay_enabled"
         private const val KEY_DIAGNOSTIC_LOGGING_ENABLED = "diagnostic_logging_enabled"
+        private const val KEY_LIVE_STREAM_SKIP_ENABLED = "live_stream_skip_enabled"
         private const val KEY_TARGET_PACKAGES = "target_packages"
         private const val KEY_AD_KEYWORDS = "ad_keywords"
         private const val KEY_BLOCKED_CREATORS = "blocked_creators"
@@ -153,6 +188,8 @@ class SettingsRepository(context: Context) {
         private const val KEY_BLOCK_OPTION_KEYWORDS = "block_option_keywords"
         private const val KEY_BLOCK_CONFIRM_KEYWORDS = "block_confirm_keywords"
         private const val KEY_DOWNLOAD_OPTION_KEYWORDS = "download_option_keywords"
+        private const val KEY_LIVE_INDICATOR_KEYWORDS = "live_indicator_keywords"
+        private const val KEY_LIVE_MORE_OPTIONS_KEYWORDS = "live_more_options_keywords"
 
         // com.zhiliaoapp.musically is global/US TikTok; com.ss.android.ugc.trill has been
         // used for TikTok in some regions/older builds. Both are included by default so
@@ -166,5 +203,11 @@ class SettingsRepository(context: Context) {
         val DEFAULT_BLOCK_OPTION_KEYWORDS = listOf("Block")
         val DEFAULT_BLOCK_CONFIRM_KEYWORDS = listOf("Block")
         val DEFAULT_DOWNLOAD_OPTION_KEYWORDS = listOf("Save video", "Save", "Download")
+
+        // The badge TikTok renders on every Live room, and best-effort candidates for
+        // where a Live room's own menu is opened from - neither confirmed against a live
+        // device (see README's Live streams section).
+        val DEFAULT_LIVE_INDICATOR_KEYWORDS = listOf("LIVE")
+        val DEFAULT_LIVE_MORE_OPTIONS_KEYWORDS = listOf("More", "Report", "...")
     }
 }

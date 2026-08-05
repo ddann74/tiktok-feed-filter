@@ -143,4 +143,30 @@ class FilterEngineTest {
     fun `normalizeHandle strips leading at-sign and lowercases`() {
         assertEquals("someuser", FilterEngine.normalizeHandle("@SomeUser"))
     }
+
+    @Test
+    fun `isLiveStream matches the LIVE badge case-insensitively`() {
+        assertEquals(
+            true,
+            FilterEngine.isLiveStream(listOf("@some_host", "live", "1.2K watching"), listOf("LIVE"))
+        )
+    }
+
+    @Test
+    fun `isLiveStream does not match LIVE embedded inside a longer caption`() {
+        // Only an exact standalone "LIVE" text node should count - a caption like
+        // "come live your best life" should not be mistaken for the Live badge.
+        assertEquals(
+            false,
+            FilterEngine.isLiveStream(listOf("@some_host", "come live your best life"), listOf("LIVE"))
+        )
+    }
+
+    @Test
+    fun `isLiveStream returns false for a normal video screen`() {
+        assertEquals(
+            false,
+            FilterEngine.isLiveStream(listOf("@some_creator", "a normal caption", "128 comments"), listOf("LIVE"))
+        )
+    }
 }

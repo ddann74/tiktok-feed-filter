@@ -57,6 +57,7 @@ class MainActivity : AppCompatActivity() {
         binding.realBlockSwitch.isChecked = settingsRepository.isRealBlockAutomationEnabled
         binding.overlaySwitch.isChecked = settingsRepository.isOverlayEnabled
         binding.diagnosticLoggingSwitch.isChecked = settingsRepository.isDiagnosticLoggingEnabled
+        binding.liveStreamSkipSwitch.isChecked = settingsRepository.isLiveStreamSkipEnabled
         renderAllLists()
         refreshStats()
     }
@@ -101,6 +102,9 @@ class MainActivity : AppCompatActivity() {
         }
         binding.overlaySwitch.setOnCheckedChangeListener { _, isChecked ->
             settingsRepository.isOverlayEnabled = isChecked
+        }
+        binding.liveStreamSkipSwitch.setOnCheckedChangeListener { _, isChecked ->
+            settingsRepository.isLiveStreamSkipEnabled = isChecked
         }
 
         binding.addBlockedCreatorButton.setOnClickListener {
@@ -157,6 +161,13 @@ class MainActivity : AppCompatActivity() {
             settingsRepository.addKeyword(settingsRepository::downloadOptionKeywords, keyword)
             binding.downloadOptionKeywordInput.setText("")
             renderDownloadOptionKeywords()
+        }
+        binding.addLiveMoreOptionsKeywordButton.setOnClickListener {
+            val keyword = binding.liveMoreOptionsKeywordInput.text.toString().trim()
+            if (keyword.isEmpty()) return@setOnClickListener
+            settingsRepository.addKeyword(settingsRepository::liveMoreOptionsKeywords, keyword)
+            binding.liveMoreOptionsKeywordInput.setText("")
+            renderLiveMoreOptionsKeywords()
         }
 
         binding.clearStatsButton.setOnClickListener {
@@ -238,6 +249,7 @@ class MainActivity : AppCompatActivity() {
         renderBlockOptionKeywords()
         renderBlockConfirmKeywords()
         renderDownloadOptionKeywords()
+        renderLiveMoreOptionsKeywords()
     }
 
     /** Not built on the shared renderList helper (unlike every other list here) because
@@ -311,6 +323,13 @@ class MainActivity : AppCompatActivity() {
         renderList(binding.downloadOptionKeywordsContainer, settingsRepository.downloadOptionKeywords) { keyword ->
             settingsRepository.removeKeyword(settingsRepository::downloadOptionKeywords, keyword)
             renderDownloadOptionKeywords()
+        }
+    }
+
+    private fun renderLiveMoreOptionsKeywords() {
+        renderList(binding.liveMoreOptionsKeywordsContainer, settingsRepository.liveMoreOptionsKeywords) { keyword ->
+            settingsRepository.removeKeyword(settingsRepository::liveMoreOptionsKeywords, keyword)
+            renderLiveMoreOptionsKeywords()
         }
     }
 

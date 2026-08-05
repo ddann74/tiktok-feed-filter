@@ -44,21 +44,33 @@ class TikTokActionCoordinator(
 
     /** Always adds [handle] to the local blocklist immediately, then - if enabled -
       * kicks off the real-TikTok-block tap sequence too. The local list never depends
-      * on the automation succeeding. */
-    fun startBlockCurrentCreator(handle: String) {
+      * on the automation succeeding. [isLive] picks which tap sequence to use - a Live
+      * room's menu is opened from a different place than a normal video's (see
+      * SettingsRepository.liveBlockActionStages). */
+    fun startBlockCurrentCreator(handle: String, isLive: Boolean = false) {
         settingsRepository.addBlockedCreator(handle)
         statsRepository.recordEvent("Added $handle to local blocklist")
-        diagnosticLog.log("BLOCK", "$handle added to local blocklist")
+        diagnosticLog.log("BLOCK", "$handle added to local blocklist (live=$isLive)")
         if (!settingsRepository.isRealBlockAutomationEnabled) {
             diagnosticLog.log("BLOCK", "real block automation disabled in settings, stopping here")
             return
         }
-        pendingBlock = ActionSequence(settingsRepository.blockActionStages(), System.currentTimeMillis())
+        val stages = if (isLive) settingsRepository.liveBlockActionStages() else settingsRepository.blockActionStages()
+        pendingBlock = ActionSequence(stages, System.currentTimeMillis())
         statsRepository.recordEvent("Attempting to block $handle in TikTok directly...")
-        diagnosticLog.log("BLOCK", "sequence started for $handle, stages=${settingsRepository.blockActionStages()}")
+        diagnosticLog.log("BLOCK", "sequence started for $handle (live=$isLive), stages=$stages")
     }
 
-    fun startDownloadCurrentVideo() {
+    /** No-op (with a clear log/activity entry) if [isLive] - a Live broadcast has no
+      * saved video file for TikTok's own Save option to act on, so there's nothing here
+      * to download; starting the tap sequence anyway would just stall out on a 4-second
+      * timeout searching for a "Save video" option that was never going to appear. */
+    fun startDownloadCurrentVideo(isLive: Boolean = false) {
+        if (isLive) {
+            statsRepository.recordEvent("Download isn't available on Live streams")
+            diagnosticLog.log("DOWNLOAD", "skipped - current screen is a Live stream")
+            return
+        }
         pendingDownload = ActionSequence(settingsRepository.downloadActionStages(), System.currentTimeMillis())
         downloadTriggeredAtEpochSeconds = System.currentTimeMillis() / 1000
         statsRepository.recordEvent("Attempting to download the current video...")

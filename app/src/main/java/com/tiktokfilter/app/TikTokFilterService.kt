@@ -38,7 +38,7 @@ class TikTokFilterService : AccessibilityService() {
             service = this,
             diagnosticLog = diagnosticLog,
             onBlockTapped = { handleOverlayBlockTapped() },
-            onDownloadTapped = { actionCoordinator.startDownloadCurrentVideo() }
+            onDownloadTapped = { handleOverlayDownloadTapped() }
         )
         diagnosticLog.log("SERVICE", "onServiceConnected")
     }
@@ -73,6 +73,8 @@ class TikTokFilterService : AccessibilityService() {
         @Suppress("DEPRECATION")
         root.recycle()
 
+        val isLive = FilterEngine.isLiveStream(texts, settingsRepository.liveIndicatorKeywords)
+
         val decision = FilterEngine.evaluate(
             screenTexts = texts,
             adKeywordsEnabled = settingsRepository.isAdSkipEnabled,
@@ -81,10 +83,17 @@ class TikTokFilterService : AccessibilityService() {
             blockedCreators = settingsRepository.blockedCreators.toSet()
         )
         if (decision == null) {
-            diagnosticLog.log("FILTER", "no match - texts=$texts")
+            diagnosticLog.log("FILTER", "no match - live=$isLive - texts=$texts")
             return
         }
-        diagnosticLog.log("FILTER", "${decision.reason} matched \"${decision.detail}\" - texts=$texts")
+        // A Live room is a different kind of screen than a normal video - swiping away
+        // from one is gated by its own toggle (default on) rather than assuming the
+        // same behavior as skipping a video is always wanted here too.
+        if (isLive && !settingsRepository.isLiveStreamSkipEnabled) {
+            diagnosticLog.log("FILTER", "${decision.reason} matched \"${decision.detail}\" on a Live stream but live-skip is disabled - texts=$texts")
+            return
+        }
+        diagnosticLog.log("FILTER", "${decision.reason} matched \"${decision.detail}\" - live=$isLive - texts=$texts")
 
         lastSkipMillis = now
         statsRepository.recordSkip(decision)
@@ -117,8 +126,30 @@ class TikTokFilterService : AccessibilityService() {
             diagnosticLog.log("OVERLAY", "Block tapped, no handle found - texts=$texts")
             return
         }
-        diagnosticLog.log("OVERLAY", "Block tapped for $handle")
-        actionCoordinator.startBlockCurrentCreator(handle)
+        val isLive = FilterEngine.isLiveStream(texts, settingsRepository.liveIndicatorKeywords)
+        diagnosticLog.log("OVERLAY", "Block tapped for $handle (live=$isLive)")
+        actionCoordinator.startBlockCurrentCreator(handle, isLive)
+    }
+
+    /** Same fresh-snapshot approach as [handleOverlayBlockTapped] - Download needs to know
+      * whether the current screen is a Live room before starting the tap sequence, since
+      * there's no video file to save from a live broadcast (see
+      * TikTokActionCoordinator.startDownloadCurrentVideo). */
+    private fun handleOverlayDownloadTapped() {
+        val root = rootInActiveWindow
+        if (root == null) {
+            statsRepository.recordEvent("Download tapped but no screen content was available")
+            diagnosticLog.log("OVERLAY", "Download tapped, rootInActiveWindow was null")
+            return
+        }
+        val texts = mutableListOf<String>()
+        collectText(root, texts)
+        @Suppress("DEPRECATION")
+        root.recycle()
+
+        val isLive = FilterEngine.isLiveStream(texts, settingsRepository.liveIndicatorKeywords)
+        diagnosticLog.log("OVERLAY", "Download tapped (live=$isLive)")
+        actionCoordinator.startDownloadCurrentVideo(isLive)
     }
 
     /** Depth-first collection of every text/contentDescription string in the current

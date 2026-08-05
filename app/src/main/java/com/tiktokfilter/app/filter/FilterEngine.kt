@@ -57,4 +57,18 @@ object FilterEngine {
 
     fun normalizeHandle(handle: String): String =
         handle.trim().removePrefix("@").lowercase()
+
+    /** Whether the current screen looks like a TikTok Live room rather than a normal
+      * FYP video - a plain substring match against [liveIndicatorKeywords] (default:
+      * "LIVE", the badge TikTok renders on every live room), same heuristic shape as
+      * ad-keyword matching. This exists because Live rooms use a different on-screen
+      * layout than a normal video - the blocked-creator handle match above still works
+      * the same way (a Live room's host handle is just another text node), but the
+      * Block/Download tap sequences need to know they're on a Live screen so they can
+      * use the right menu structure (see TikTokActionCoordinator, SettingsRepository's
+      * liveBlockActionStages). */
+    fun isLiveStream(screenTexts: List<String>, liveIndicatorKeywords: List<String>): Boolean =
+        liveIndicatorKeywords.any { keyword ->
+            keyword.isNotBlank() && screenTexts.any { it.equals(keyword, ignoreCase = true) }
+        }
 }

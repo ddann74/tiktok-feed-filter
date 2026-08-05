@@ -29,6 +29,8 @@ you would.
 - A separate, opt-in **Diagnostic Log** (`DiagnosticLog`) captures the technical detail
   Activity deliberately leaves out - raw on-screen text, per-stage automation attempts -
   for actually troubleshooting or tuning a keyword list (see its own section below).
+- **Live streams** are recognized separately from normal videos (`FilterEngine.isLiveStream`),
+  since TikTok renders a Live room's screen differently - see its own section below.
 
 ## This is inherently heuristic - read this before relying on it
 
@@ -112,6 +114,38 @@ sequence looks for - "More Options" Button Labels, "Block" Menu Option Labels, B
 Confirmation Dialog Labels, and "Download/Save" Menu Option Labels - each with sensible
 defaults, each editable without a rebuild.
 
+## Live streams
+
+Yes - blocked creators are skipped out of their Live rooms too, not just their normal
+videos, and **Block** still works while watching one. TikTok renders a Live room
+differently from a normal video, though, so this is handled as its own case rather than
+assuming everything above just applies unchanged:
+
+- **Detection** (`FilterEngine.isLiveStream`) looks for TikTok's own **LIVE** badge text
+  on screen - a separate, editable keyword list (**Live Streams** section in Setup)
+  from the ad/creator ones above, since it's answering a different question ("is this a
+  Live room at all") rather than "who posted this" or "is this an ad".
+- **Auto-skipping a blocked creator's Live** uses the exact same `@handle` match and
+  swipe-away gesture as skipping their normal videos - no separate logic needed there,
+  since a Live room's host handle is just another piece of on-screen text. This is
+  controlled by its own toggle, **Skip Live streams from blocked creators** (default
+  on), independent of the video-skip toggles, in case you'd rather leave that off.
+- **Really blocking** a Live host taps a different entry point than a video does - a
+  Live room's own options/report menu, rather than a video's "..." button - configured
+  by **Live Room Menu Entry Labels** in Setup. From there, it's assumed TikTok reuses
+  the same **Block** wording and confirmation dialog as a normal video; if that turns
+  out not to hold on your TikTok version, tune the Block Menu Option / Confirmation
+  Dialog labels the same way you would for a normal video (they're shared between both).
+- **Download does not run on a Live stream** - a live broadcast isn't a saved video
+  file, so there's nothing for TikTok's Save option to act on. Tapping **Download**
+  while watching a Live just logs that it isn't available, rather than tapping around
+  looking for an option that was never going to appear.
+
+Like the rest of Real TikTok Integration, none of this has been confirmed against a
+real TikTok install - the Live room menu structure in particular is a best-effort
+guess. If **Block** doesn't work on a Live but does on normal videos, that's the first
+place to check with the **Diagnostic Log**.
+
 ## Diagnostic log
 
 The **Activity** log is deliberately curated for everyday use - short, friendly lines
@@ -152,9 +186,10 @@ sharing it is always a manual, explicit action you take.
 4. Add any creators you want auto-skipped under **Blocked Creators** (with or without
    the leading `@`, doesn't matter).
 5. Adjust **Ad Keywords** if needed - "Sponsored" is the default and covers most cases.
-6. Leave **Really block in TikTok** and **Show floating Block/Download buttons** on
-   (both default on) if you want the fuller feature set; turn either off if you'd
-   rather stick to passive skip-only filtering.
+6. Leave **Really block in TikTok**, **Show floating Block/Download buttons**, and
+   **Skip Live streams from blocked creators** on (all default on) if you want the
+   fuller feature set; turn any off if you'd rather stick to passive skip-only
+   filtering, or leave Live rooms alone entirely.
 7. Open TikTok and scroll - matching videos should now skip on their own, and the
    floating Block/Download buttons should appear. Check **Activity** in this app
    afterward to see what it caught (or attempted and couldn't complete).
@@ -229,9 +264,11 @@ extraction uses only Android's built-in media APIs.
   `blockConfirmKeywords`, `downloadOptionKeywords`) are the least verified part of this
   app - the exact menu structure and button wording were not confirmed against a live
   TikTok install during development. Expect to tune these after first real use.
-- No handling yet for TikTok Live streams or the Shop tab, which have different on-screen
-  layouts than the standard FYP video view - filtering and the automations there haven't
-  been validated.
+- Live streams are now handled (see *Live streams*, above), but the Live room menu
+  structure - specifically **Live Room Menu Entry Labels**, how you get to the Block
+  option in the first place - is a best-effort guess, not confirmed against a live
+  TikTok install, same caveat as the rest of Real TikTok Integration. The Shop tab has
+  its own on-screen layout too and still isn't handled at all.
 - Audio extraction assumes TikTok's saved video uses an audio codec `MediaMuxer` can
   remux into an MP4/M4A container (AAC, in practice) - if TikTok ever used something
   else, extraction for that file would fail and log accordingly rather than silently
