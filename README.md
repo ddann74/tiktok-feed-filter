@@ -31,6 +31,9 @@ you would.
   for actually troubleshooting or tuning a keyword list (see its own section below).
 - **Live streams** are recognized separately from normal videos (`FilterEngine.isLiveStream`),
   since TikTok renders a Live room's screen differently - see its own section below.
+- An optional **Subject Filter** inverts the ad-keyword idea: instead of skipping videos
+  that match something, it skips every video that *doesn't* match one of your configured
+  subjects - see its own section below.
 
 ## This is inherently heuristic - read this before relying on it
 
@@ -202,6 +205,36 @@ real TikTok install - the Live room menu structure in particular is a best-effor
 guess. If **Block** doesn't work on a Live but does on normal videos, that's the first
 place to check with the **Diagnostic Log**.
 
+## Subject filter
+
+Everything above skips videos that match something specific (an ad, a blocked
+creator). **Subject Filter** is the opposite: an *allow-list*, not a block-list. Add
+subjects you actually want - "history", "science", whatever - and turn on **Only show
+videos about my subjects**, and every video whose caption/hashtags don't mention at
+least one of them gets skipped, not just ones that match something in particular.
+
+It uses the exact same matching mechanics as Ad Keywords - case-insensitive substring
+match against the current video's own on-screen text, scoped the same way (a preloaded
+video further down the feed can't accidentally satisfy the match for the one actually
+on screen) - just inverted: no match means skip, instead of a match meaning skip.
+
+**Off by default, and safe to turn on before you've added anything**: with no subjects
+configured, the filter has nothing to check against and stays completely inert, rather
+than skipping every single video the moment the toggle is flipped. Add at least one
+subject before it actually starts filtering.
+
+An ad or a blocked creator is still skipped for *that* reason even if the video happens
+to also mention one of your subjects - those checks run first and return immediately,
+same priority order as before this existed.
+
+This inherits the same wording-mismatch risk as every other keyword list here, but the
+failure mode is more disruptive: a caption using different phrasing than you expect
+(`"#historytok"` instead of the word "history", for instance) means that video gets
+skipped as off-subject instead of just not being specially treated. If your feed
+suddenly looks nearly empty after turning this on, check **Diagnostic Log** - every
+skip includes which subjects it was looking for and the exact on-screen text it
+searched, which is the fastest way to see what wording you're actually missing.
+
 ## Diagnostic log
 
 The **Activity** log is deliberately curated for everyday use - short, friendly lines
@@ -244,14 +277,17 @@ sharing it is always a manual, explicit action you take.
    a creator*, above); the leading `@`, if you include one, is stripped automatically.
 5. Adjust **Ad Keywords** if needed - "Sponsored" and "Ad starts in" are the defaults
    and cover the two ad formats confirmed against a real device.
-6. Leave **Really block in TikTok**, **Show floating Block/Download buttons**, and
+6. If you want your feed narrowed to specific subjects, add them under **Subject
+   Filter** and turn on **Only show videos about my subjects** - leave this off (the
+   default) if you just want ad/creator filtering without narrowing your feed by topic.
+7. Leave **Really block in TikTok**, **Show floating Block/Download buttons**, and
    **Skip Live streams from blocked creators** on (all default on) if you want the
    fuller feature set; turn any off if you'd rather stick to passive skip-only
    filtering, or leave Live rooms alone entirely.
-7. Open TikTok and scroll - matching videos should now skip on their own, and the
+8. Open TikTok and scroll - matching videos should now skip on their own, and the
    floating Block/Download buttons should appear. Check **Activity** in this app
    afterward to see what it caught (or attempted and couldn't complete).
-8. If anything isn't working as expected, turn on **Enable diagnostic logging**
+9. If anything isn't working as expected, turn on **Enable diagnostic logging**
    under **Diagnostics**, reproduce the issue, then use **Share Diagnostic Log** to
    export the detail behind it (see *Diagnostic log*, above). It's off by default -
    only turn it on when you actually need it.
@@ -314,6 +350,15 @@ extraction uses only Android's built-in media APIs.
 
 ## Known open items
 
+- **Subject Filter is untested against a real feed.** It reuses the same matching
+  mechanics already confirmed to work correctly (current-video scoping, case-insensitive
+  substring match), but whether TikTok captions/hashtags actually contain the literal
+  words you'd configure (e.g. "history") as opposed to different phrasing (e.g.
+  `"#historytok"`, `"#ww2"`) hasn't been verified against a live device the way ad
+  detection has been. Because this is an allow-list rather than a block-list, a wording
+  mismatch is much more visible here - it means everything gets skipped, not just one
+  missed video - so add several plausible variants per subject rather than a single
+  word, and check **Diagnostic Log** if your feed goes quiet after turning it on.
 - **"Ad starts in" may never actually match anything, and that might be correct.**
   A second diagnostic log showed the exact same pattern as the first: `"Ad starts in
   5s"` appeared 222 times, always attached to a preloaded video several slots ahead,

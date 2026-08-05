@@ -57,6 +57,26 @@ class SettingsRepository(context: Context) {
         get() = prefs.getBoolean(KEY_LIVE_STREAM_SKIP_ENABLED, true)
         set(value) = prefs.edit().putBoolean(KEY_LIVE_STREAM_SKIP_ENABLED, value).apply()
 
+    /** Off by default, unlike ad/creator skipping - this is an *allow-list*, not a
+      * block-list: when on, every video whose caption/hashtags don't mention at least
+      * one configured [subjectKeywords] entry gets skipped, not just ones that match
+      * something specific. That's a much bigger behavior change to turn on by default,
+      * and (see FilterEngine.evaluate) it stays inert even if somehow enabled before any
+      * subject is actually configured, rather than skipping every video. */
+    var isSubjectFilterEnabled: Boolean
+        get() = prefs.getBoolean(KEY_SUBJECT_FILTER_ENABLED, false)
+        set(value) = prefs.edit().putBoolean(KEY_SUBJECT_FILTER_ENABLED, value).apply()
+
+    /** Subjects you want to keep seeing, e.g. "history", "science" - matched the same
+      * way as Ad Keywords (case-insensitive substring against the current video's own
+      * caption/hashtags/on-screen text), just inverted: a video that matches *none* of
+      * these gets skipped instead of one that matches something specific. Empty by
+      * default - see [isSubjectFilterEnabled]'s doc for why an empty list doesn't skip
+      * everything. */
+    var subjectKeywords: List<String>
+        get() = parseList(prefs.getString(KEY_SUBJECT_KEYWORDS, null) ?: "")
+        set(value) = prefs.edit().putString(KEY_SUBJECT_KEYWORDS, joinList(value)).apply()
+
     /** Which app package(s) the service is allowed to read/act on - a list (not one value)
       * since TikTok ships under different package names by region/variant (see README). */
     var targetPackages: List<String>
@@ -181,6 +201,8 @@ class SettingsRepository(context: Context) {
         private const val KEY_OVERLAY_ENABLED = "overlay_enabled"
         private const val KEY_DIAGNOSTIC_LOGGING_ENABLED = "diagnostic_logging_enabled"
         private const val KEY_LIVE_STREAM_SKIP_ENABLED = "live_stream_skip_enabled"
+        private const val KEY_SUBJECT_FILTER_ENABLED = "subject_filter_enabled"
+        private const val KEY_SUBJECT_KEYWORDS = "subject_keywords"
         private const val KEY_TARGET_PACKAGES = "target_packages"
         private const val KEY_AD_KEYWORDS = "ad_keywords"
         private const val KEY_BLOCKED_CREATORS = "blocked_creators"

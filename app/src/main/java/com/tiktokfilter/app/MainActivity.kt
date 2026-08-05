@@ -58,6 +58,7 @@ class MainActivity : AppCompatActivity() {
         binding.overlaySwitch.isChecked = settingsRepository.isOverlayEnabled
         binding.diagnosticLoggingSwitch.isChecked = settingsRepository.isDiagnosticLoggingEnabled
         binding.liveStreamSkipSwitch.isChecked = settingsRepository.isLiveStreamSkipEnabled
+        binding.subjectFilterSwitch.isChecked = settingsRepository.isSubjectFilterEnabled
         renderAllLists()
         refreshStats()
     }
@@ -106,6 +107,9 @@ class MainActivity : AppCompatActivity() {
         binding.liveStreamSkipSwitch.setOnCheckedChangeListener { _, isChecked ->
             settingsRepository.isLiveStreamSkipEnabled = isChecked
         }
+        binding.subjectFilterSwitch.setOnCheckedChangeListener { _, isChecked ->
+            settingsRepository.isSubjectFilterEnabled = isChecked
+        }
 
         binding.addBlockedCreatorButton.setOnClickListener {
             val handle = binding.blockedCreatorInput.text.toString().trim()
@@ -123,6 +127,13 @@ class MainActivity : AppCompatActivity() {
             settingsRepository.addAdKeyword(keyword)
             binding.adKeywordInput.setText("")
             renderAdKeywords()
+        }
+        binding.addSubjectKeywordButton.setOnClickListener {
+            val keyword = binding.subjectKeywordInput.text.toString().trim()
+            if (keyword.isEmpty()) return@setOnClickListener
+            settingsRepository.addKeyword(settingsRepository::subjectKeywords, keyword)
+            binding.subjectKeywordInput.setText("")
+            renderSubjectKeywords()
         }
         binding.addTargetPackageButton.setOnClickListener {
             val pkg = binding.targetPackageInput.text.toString().trim()
@@ -234,6 +245,7 @@ class MainActivity : AppCompatActivity() {
         binding.adsSkippedText.text = "Ads skipped: ${statsRepository.adsSkipped}"
         binding.creatorsSkippedText.text = "Creators skipped: ${statsRepository.creatorsSkipped}"
         binding.audioExtractedText.text = "Audio saved: ${statsRepository.audioExtractionsCompleted}"
+        binding.offSubjectSkippedText.text = "Off-subject skipped: ${statsRepository.offSubjectSkipped}"
         val log = statsRepository.recentLog()
         binding.activityLogText.text = if (log.isEmpty()) "No activity yet" else log.joinToString("\n")
 
@@ -244,6 +256,7 @@ class MainActivity : AppCompatActivity() {
     private fun renderAllLists() {
         renderBlockedCreators()
         renderAdKeywords()
+        renderSubjectKeywords()
         renderTargetPackages()
         renderMoreOptionsKeywords()
         renderBlockOptionKeywords()
@@ -288,6 +301,13 @@ class MainActivity : AppCompatActivity() {
         renderList(binding.adKeywordsContainer, settingsRepository.adKeywords) { keyword ->
             settingsRepository.removeAdKeyword(keyword)
             renderAdKeywords()
+        }
+    }
+
+    private fun renderSubjectKeywords() {
+        renderList(binding.subjectKeywordsContainer, settingsRepository.subjectKeywords) { keyword ->
+            settingsRepository.removeKeyword(settingsRepository::subjectKeywords, keyword)
+            renderSubjectKeywords()
         }
     }
 

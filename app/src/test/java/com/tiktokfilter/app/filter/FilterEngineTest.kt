@@ -229,6 +229,82 @@ class FilterEngineTest {
     }
 
     @Test
+    fun `subject filter skips a video matching none of the configured subjects`() {
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf("SomeCreator profile", "a caption about cooking pasta"),
+            adKeywordsEnabled = false,
+            adKeywords = emptyList(),
+            blockedCreatorsEnabled = false,
+            blockedCreators = emptySet(),
+            subjectFilterEnabled = true,
+            subjectKeywords = listOf("history", "science")
+        )
+        assertEquals(SkipReason.OFF_SUBJECT, decision?.reason)
+        assertEquals("history, science", decision?.detail)
+    }
+
+    @Test
+    fun `subject filter does not skip a video matching a configured subject`() {
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf("SomeCreator profile", "a caption about ancient history"),
+            adKeywordsEnabled = false,
+            adKeywords = emptyList(),
+            blockedCreatorsEnabled = false,
+            blockedCreators = emptySet(),
+            subjectFilterEnabled = true,
+            subjectKeywords = listOf("history", "science")
+        )
+        assertNull(decision)
+    }
+
+    @Test
+    fun `subject filter is inert when no subjects are configured yet`() {
+        // Guards against the failure mode of turning the toggle on before adding any
+        // subject - should never mean "skip literally everything".
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf("SomeCreator profile", "any caption at all"),
+            adKeywordsEnabled = false,
+            adKeywords = emptyList(),
+            blockedCreatorsEnabled = false,
+            blockedCreators = emptySet(),
+            subjectFilterEnabled = true,
+            subjectKeywords = emptyList()
+        )
+        assertNull(decision)
+    }
+
+    @Test
+    fun `subject filter is scoped to the current video, not a preloaded one`() {
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf(
+                "CurrentCreator profile", "a caption about cooking pasta", "Video",
+                "NextCreator profile", "a caption about history"
+            ),
+            adKeywordsEnabled = false,
+            adKeywords = emptyList(),
+            blockedCreatorsEnabled = false,
+            blockedCreators = emptySet(),
+            subjectFilterEnabled = true,
+            subjectKeywords = listOf("history")
+        )
+        assertEquals(SkipReason.OFF_SUBJECT, decision?.reason)
+    }
+
+    @Test
+    fun `a blocked creator is skipped for that reason even if the video matches a subject`() {
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf("Annoying Account profile", "a caption about history"),
+            adKeywordsEnabled = false,
+            adKeywords = emptyList(),
+            blockedCreatorsEnabled = true,
+            blockedCreators = setOf("annoying account"),
+            subjectFilterEnabled = true,
+            subjectKeywords = listOf("history")
+        )
+        assertEquals(SkipReason.BLOCKED_CREATOR, decision?.reason)
+    }
+
+    @Test
     fun `extractHandle falls back to the display name in a profile content description`() {
         // Confirmed against a real device's diagnostic log - current TikTok builds never
         // render a bare "@handle" node, only a "<name> profile" content description.

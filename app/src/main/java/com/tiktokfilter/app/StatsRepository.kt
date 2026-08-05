@@ -16,6 +16,7 @@ class StatsRepository(context: Context) {
 
     val adsSkipped: Int get() = prefs.getInt(KEY_ADS_SKIPPED, 0)
     val creatorsSkipped: Int get() = prefs.getInt(KEY_CREATORS_SKIPPED, 0)
+    val offSubjectSkipped: Int get() = prefs.getInt(KEY_OFF_SUBJECT_SKIPPED, 0)
     val audioExtractionsCompleted: Int get() = prefs.getInt(KEY_AUDIO_EXTRACTIONS, 0)
 
     fun recentLog(): List<String> {
@@ -24,11 +25,16 @@ class StatsRepository(context: Context) {
     }
 
     fun recordSkip(decision: SkipDecision) {
-        val counterKey = if (decision.reason == SkipReason.AD) KEY_ADS_SKIPPED else KEY_CREATORS_SKIPPED
+        val counterKey = when (decision.reason) {
+            SkipReason.AD -> KEY_ADS_SKIPPED
+            SkipReason.BLOCKED_CREATOR -> KEY_CREATORS_SKIPPED
+            SkipReason.OFF_SUBJECT -> KEY_OFF_SUBJECT_SKIPPED
+        }
         val newCount = prefs.getInt(counterKey, 0) + 1
         val entry = when (decision.reason) {
             SkipReason.AD -> "Ad skipped (matched \"${decision.detail}\")"
             SkipReason.BLOCKED_CREATOR -> "Blocked creator skipped (${decision.detail})"
+            SkipReason.OFF_SUBJECT -> "Skipped - not about ${decision.detail}"
         }
         prefs.edit().putInt(counterKey, newCount).apply()
         appendLogEntry(entry)
@@ -58,6 +64,7 @@ class StatsRepository(context: Context) {
         private const val PREFS_NAME = "tiktok_filter_stats"
         private const val KEY_ADS_SKIPPED = "ads_skipped"
         private const val KEY_CREATORS_SKIPPED = "creators_skipped"
+        private const val KEY_OFF_SUBJECT_SKIPPED = "off_subject_skipped"
         private const val KEY_AUDIO_EXTRACTIONS = "audio_extractions_completed"
         private const val KEY_LOG = "recent_log"
         private const val MAX_LOG_ENTRIES = 50

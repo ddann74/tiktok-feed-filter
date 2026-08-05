@@ -104,7 +104,9 @@ class TikTokFilterService : AccessibilityService() {
             adKeywordsEnabled = settingsRepository.isAdSkipEnabled,
             adKeywords = settingsRepository.adKeywords,
             blockedCreatorsEnabled = settingsRepository.isBlockedCreatorSkipEnabled,
-            blockedCreators = settingsRepository.blockedCreators.toSet()
+            blockedCreators = settingsRepository.blockedCreators.toSet(),
+            subjectFilterEnabled = settingsRepository.isSubjectFilterEnabled,
+            subjectKeywords = settingsRepository.subjectKeywords
         )
         if (decision == null) {
             diagnosticLog.log("FILTER", "no match - live=$isLive - texts=$texts")
