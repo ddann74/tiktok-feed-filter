@@ -162,6 +162,19 @@ If a creator has disabled downloads for their video, the **Save video** option s
 doesn't exist on screen for either choice, the tap sequence times out, and the
 **Activity** log says the download wasn't available for that video.
 
+**Judging whether an extracted audio file is actually complete:** a successful
+extraction's Activity line includes the extracted duration and sample count, e.g.
+`"Audio extracted (~42.3s, 1,984 samples) to Android/data/.../ExtractedAudio/..."` -
+compare that duration against how long the source video actually was (there's no
+independent way for this app to know the video's real length, so this comparison has
+to be made by you). A duration far shorter than the video is the clearest sign
+something went wrong partway through, even though the file itself is technically valid.
+`AudioExtractor` also no longer reports success on an empty extraction - copying zero
+samples now correctly counts as a failure (with its own **Activity**/**Diagnostic Log**
+message distinguishing "no audio track at all" from "a track was found but nothing
+could be read from it"), rather than silently producing a technically-valid but
+audio-less file and calling it done.
+
 **This app will never try to download a video whose creator has disabled downloads by
 any other means (e.g. screen-recording to bypass that setting).** That's a deliberate
 line: automating a button on your own phone is one thing, circumventing a creator's

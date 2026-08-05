@@ -218,28 +218,31 @@ class TikTokActionCoordinator(
             val outputFile = File(outputDir, fileName)
 
             var extractionError: Exception? = null
-            val success = try {
+            val result = try {
                 context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
                     AudioExtractor.extractAudioTrack(pfd.fileDescriptor, outputFile.absolutePath)
-                } ?: false
+                } ?: AudioExtractor.ExtractionResult(false, 0, 0, hadAudioTrack = false)
             } catch (e: Exception) {
                 extractionError = e
-                false
+                AudioExtractor.ExtractionResult(false, 0, 0, hadAudioTrack = false)
             }
 
             mainHandler.post {
-                if (success) {
+                if (result.success) {
                     statsRepository.recordAudioExtracted()
-                    statsRepository.recordEvent("Audio extracted to Android/data/.../files/ExtractedAudio/$fileName")
-                    diagnosticLog.log("EXTRACT", "success -> ${outputFile.absolutePath} (${outputFile.length()} bytes)")
+                    val seconds = result.durationMillis / 1000.0
+                    statsRepository.recordEvent("Audio extracted (~%.1fs, %d samples) to Android/data/.../files/ExtractedAudio/%s".format(seconds, result.sampleCount, fileName))
+                    diagnosticLog.log("EXTRACT", "success -> ${outputFile.absolutePath} (${outputFile.length()} bytes, ${result.sampleCount} samples, ~${seconds}s) - compare this duration against the source video's actual length to judge whether it's complete")
                 } else {
                     outputFile.delete()
                     statsRepository.recordEvent("Audio extraction failed - the video may not have an audio track TikTok saved, or wasn't downloaded")
                     val error = extractionError
                     if (error != null) {
                         diagnosticLog.logError("EXTRACT", "failed for $uri", error)
+                    } else if (result.hadAudioTrack) {
+                        diagnosticLog.log("EXTRACT", "failed for $uri - an audio track was found but zero samples could be read from it")
                     } else {
-                        diagnosticLog.log("EXTRACT", "failed for $uri - no audio track found, or AudioExtractor couldn't remux it")
+                        diagnosticLog.log("EXTRACT", "failed for $uri - no audio track found in the saved video")
                     }
                 }
             }
