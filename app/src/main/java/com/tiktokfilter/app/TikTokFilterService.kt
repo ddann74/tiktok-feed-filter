@@ -5,6 +5,7 @@ import android.accessibilityservice.GestureDescription
 import android.graphics.Path
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import com.tiktokfilter.app.diagnostics.DiagnosticLog
 import com.tiktokfilter.app.filter.FilterEngine
 import com.tiktokfilter.app.overlay.OverlayController
 import com.tiktokfilter.app.tiktokactions.TikTokActionCoordinator
@@ -22,6 +23,7 @@ class TikTokFilterService : AccessibilityService() {
 
     private lateinit var settingsRepository: SettingsRepository
     private lateinit var statsRepository: StatsRepository
+    private lateinit var diagnosticLog: DiagnosticLog
     private lateinit var actionCoordinator: TikTokActionCoordinator
     private lateinit var overlayController: OverlayController
     private var lastSkipMillis: Long = 0L
@@ -30,12 +32,15 @@ class TikTokFilterService : AccessibilityService() {
         super.onServiceConnected()
         settingsRepository = SettingsRepository(this)
         statsRepository = StatsRepository(this)
-        actionCoordinator = TikTokActionCoordinator(this, settingsRepository, statsRepository)
+        diagnosticLog = DiagnosticLog(this, settingsRepository)
+        actionCoordinator = TikTokActionCoordinator(this, settingsRepository, statsRepository, diagnosticLog)
         overlayController = OverlayController(
             service = this,
+            diagnosticLog = diagnosticLog,
             onBlockTapped = { handleOverlayBlockTapped() },
             onDownloadTapped = { actionCoordinator.startDownloadCurrentVideo() }
         )
+        diagnosticLog.log("SERVICE", "onServiceConnected")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -74,7 +79,12 @@ class TikTokFilterService : AccessibilityService() {
             adKeywords = settingsRepository.adKeywords,
             blockedCreatorsEnabled = settingsRepository.isBlockedCreatorSkipEnabled,
             blockedCreators = settingsRepository.blockedCreators.toSet()
-        ) ?: return
+        )
+        if (decision == null) {
+            diagnosticLog.log("FILTER", "no match - texts=$texts")
+            return
+        }
+        diagnosticLog.log("FILTER", "${decision.reason} matched \"${decision.detail}\" - texts=$texts")
 
         lastSkipMillis = now
         statsRepository.recordSkip(decision)
@@ -82,6 +92,7 @@ class TikTokFilterService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
+        diagnosticLog.log("SERVICE", "onInterrupt")
         overlayController.hide()
     }
 
@@ -92,6 +103,7 @@ class TikTokFilterService : AccessibilityService() {
         val root = rootInActiveWindow
         if (root == null) {
             statsRepository.recordEvent("Block tapped but no screen content was available")
+            diagnosticLog.log("OVERLAY", "Block tapped, rootInActiveWindow was null")
             return
         }
         val texts = mutableListOf<String>()
@@ -102,8 +114,10 @@ class TikTokFilterService : AccessibilityService() {
         val handle = FilterEngine.extractHandle(texts)
         if (handle == null) {
             statsRepository.recordEvent("Block tapped but couldn't identify the current creator's handle")
+            diagnosticLog.log("OVERLAY", "Block tapped, no handle found - texts=$texts")
             return
         }
+        diagnosticLog.log("OVERLAY", "Block tapped for $handle")
         actionCoordinator.startBlockCurrentCreator(handle)
     }
 

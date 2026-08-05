@@ -26,6 +26,9 @@ you would.
   below; this is the most fragile part of the app and worth reading before relying on it).
 - Every outcome - a skip, a block, a download, an extraction, or any of them failing -
   is written to the **Activity** log, so nothing here is a silent black box.
+- A separate, opt-in **Diagnostic Log** (`DiagnosticLog`) captures the technical detail
+  Activity deliberately leaves out - raw on-screen text, per-stage automation attempts -
+  for actually troubleshooting or tuning a keyword list (see its own section below).
 
 ## This is inherently heuristic - read this before relying on it
 
@@ -47,7 +50,9 @@ pattern-matching against their labels, which means:
   Each attempt has a 4-second timeout per step; when it times out, the **Activity** log
   says so explicitly rather than pretending it worked.
 - If something stops working, check **Activity** first - it's the fastest way to tell
-  "TikTok changed something" from "this app has a bug."
+  "TikTok changed something" from "this app has a bug." If Activity isn't enough to
+  tell what's going wrong, turn on the **Diagnostic Log** (below) and try again - it
+  shows the exact on-screen text each decision was based on.
 
 ## Floating buttons
 
@@ -107,6 +112,35 @@ sequence looks for - "More Options" Button Labels, "Block" Menu Option Labels, B
 Confirmation Dialog Labels, and "Download/Save" Menu Option Labels - each with sensible
 defaults, each editable without a rebuild.
 
+## Diagnostic log
+
+The **Activity** log is deliberately curated for everyday use - short, friendly lines
+like "Ad skipped." The **Diagnostic Log**, under its own section in the app, is the
+opposite: everything, in detail, meant for the one moment you actually need it.
+
+With **Enable diagnostic logging** on, every screen evaluation is recorded with the
+*full list of raw text* the accessibility tree returned for that screen - so if a video
+isn't getting skipped, you can see exactly what TikTok rendered and check it against
+your keyword list yourself, rather than guessing. Every Block/Download automation stage
+is recorded too - which keywords it searched for, whether a matching node was found,
+whether it timed out - so a stalled automation shows you precisely which step it never
+got past. Audio extraction failures include the actual exception and stack trace.
+
+It's off by default because this level of detail is genuinely noisy and not something
+day-to-day use needs - turn it on when you're actively troubleshooting or tuning a
+keyword list, reproduce the issue, then either:
+
+- **Share Diagnostic Log** - opens the system share sheet (email, Files, a text editor,
+  anywhere) with the log file, via a scoped `FileProvider` grant - nothing is shared
+  automatically or without you choosing where.
+- **Clear Diagnostic Log** - wipes it once you're done, so leaving logging on
+  afterward doesn't slowly accumulate an old, irrelevant log.
+
+The file itself lives in this app's private internal storage (`diagnostics.log`,
+capped at 512 KB - oldest entries are trimmed first if it grows past that) and is
+never written anywhere else, read by any other component, or transmitted anywhere -
+sharing it is always a manual, explicit action you take.
+
 ## Setup
 
 1. **Open in Android Studio**, let Gradle sync.
@@ -124,6 +158,10 @@ defaults, each editable without a rebuild.
 7. Open TikTok and scroll - matching videos should now skip on their own, and the
    floating Block/Download buttons should appear. Check **Activity** in this app
    afterward to see what it caught (or attempted and couldn't complete).
+8. If anything isn't working as expected, turn on **Enable diagnostic logging**
+   under **Diagnostics**, reproduce the issue, then use **Share Diagnostic Log** to
+   export the detail behind it (see *Diagnostic log*, above). It's off by default -
+   only turn it on when you actually need it.
 
 **minSdk 24 (Android 7.0)** is a hard requirement, not a stylistic choice -
 `AccessibilityService.dispatchGesture`, the actual mechanism used to perform a skip,
@@ -168,6 +206,7 @@ tiktokactions/    ActionSequence (pure, unit-tested step logic) +
 media/            AudioExtractor (MediaExtractor/MediaMuxer remuxing) +
                   DownloadedVideoLocator (MediaStore query for TikTok's saved file)
 overlay/          OverlayController - the floating Block/Download buttons
+diagnostics/      DiagnosticLog - verbose, opt-in, file-backed troubleshooting log
 TikTokFilterService   Accessibility service - screen reading, gesture dispatch,
                       overlay show/hide, forwards events to TikTokActionCoordinator
 SettingsRepository    All filters, toggles, and the automation keyword lists

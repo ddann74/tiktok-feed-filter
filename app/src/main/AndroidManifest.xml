@@ -45,6 +45,20 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
+        <!-- Lets "Share Diagnostic Log" hand the file to another app (email, Files,
+             a text editor) via a content:// Uri, without making the file world-readable -
+             exported="false" plus per-request grantUriPermissions is the standard,
+             narrowly-scoped way to share a single app-private file. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
     </application>
 
 </manifest>

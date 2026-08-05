@@ -8,6 +8,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.WindowManager
 import com.tiktokfilter.app.R
+import com.tiktokfilter.app.diagnostics.DiagnosticLog
 
 /**
  * Floating Block/Download buttons drawn over TikTok using an accessibility overlay
@@ -19,6 +20,7 @@ import com.tiktokfilter.app.R
  */
 class OverlayController(
     private val service: AccessibilityService,
+    private val diagnosticLog: DiagnosticLog,
     private val onBlockTapped: () -> Unit,
     private val onDownloadTapped: () -> Unit
 ) {
@@ -48,9 +50,11 @@ class OverlayController(
         try {
             windowManager.addView(view, params)
             overlayView = view
+            diagnosticLog.log("OVERLAY", "shown")
         } catch (e: Exception) {
             // Some OEMs restrict accessibility overlays further than stock Android -
             // fail quietly rather than crash the whole service over a UI extra.
+            diagnosticLog.logError("OVERLAY", "failed to show", e)
         }
     }
 
@@ -59,8 +63,10 @@ class OverlayController(
         overlayView = null
         try {
             windowManager.removeView(view)
+            diagnosticLog.log("OVERLAY", "hidden")
         } catch (e: Exception) {
             // View may already be gone (e.g. service interrupted) - nothing to clean up.
+            diagnosticLog.logError("OVERLAY", "failed to hide (view may already be gone)", e)
         }
     }
 }

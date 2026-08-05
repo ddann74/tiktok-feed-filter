@@ -14,16 +14,21 @@ import android.widget.Button
 import android.widget.CheckBox
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import com.tiktokfilter.app.databinding.ActivityMainBinding
+import com.tiktokfilter.app.diagnostics.DiagnosticLog
+import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var settingsRepository: SettingsRepository
     private lateinit var statsRepository: StatsRepository
+    private lateinit var diagnosticLog: DiagnosticLog
 
     private var isSelectModeActive = false
     private val selectedCreators = mutableSetOf<String>()
@@ -43,6 +48,7 @@ class MainActivity : AppCompatActivity() {
 
         settingsRepository = SettingsRepository(this)
         statsRepository = StatsRepository(this)
+        diagnosticLog = DiagnosticLog(this, settingsRepository)
 
         requestStoragePermissionIfNeeded()
         setupListeners()
@@ -50,6 +56,7 @@ class MainActivity : AppCompatActivity() {
         binding.blockedCreatorSkipSwitch.isChecked = settingsRepository.isBlockedCreatorSkipEnabled
         binding.realBlockSwitch.isChecked = settingsRepository.isRealBlockAutomationEnabled
         binding.overlaySwitch.isChecked = settingsRepository.isOverlayEnabled
+        binding.diagnosticLoggingSwitch.isChecked = settingsRepository.isDiagnosticLoggingEnabled
         renderAllLists()
         refreshStats()
     }
@@ -156,6 +163,30 @@ class MainActivity : AppCompatActivity() {
             statsRepository.clear()
             refreshStats()
         }
+
+        binding.diagnosticLoggingSwitch.setOnCheckedChangeListener { _, isChecked ->
+            settingsRepository.isDiagnosticLoggingEnabled = isChecked
+        }
+        binding.shareDiagnosticLogButton.setOnClickListener { shareDiagnosticLog() }
+        binding.clearDiagnosticLogButton.setOnClickListener {
+            diagnosticLog.clear()
+            refreshStats()
+            Toast.makeText(this, "Diagnostic log cleared", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun shareDiagnosticLog() {
+        if (diagnosticLog.sizeBytes == 0L) {
+            Toast.makeText(this, "Diagnostic log is empty", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", File(diagnosticLog.filePath))
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        startActivity(Intent.createChooser(intent, "Share diagnostic log"))
     }
 
     private fun toggleSelectMode() {
@@ -194,6 +225,9 @@ class MainActivity : AppCompatActivity() {
         binding.audioExtractedText.text = "Audio saved: ${statsRepository.audioExtractionsCompleted}"
         val log = statsRepository.recentLog()
         binding.activityLogText.text = if (log.isEmpty()) "No activity yet" else log.joinToString("\n")
+
+        val kilobytes = diagnosticLog.sizeBytes / 1024.0
+        binding.diagnosticLogSizeText.text = "Diagnostic log: %.1f KB".format(kilobytes)
     }
 
     private fun renderAllLists() {

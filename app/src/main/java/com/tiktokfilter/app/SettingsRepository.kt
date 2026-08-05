@@ -39,6 +39,15 @@ class SettingsRepository(context: Context) {
         get() = prefs.getBoolean(KEY_OVERLAY_ENABLED, true)
         set(value) = prefs.edit().putBoolean(KEY_OVERLAY_ENABLED, value).apply()
 
+    /** Off by default - the diagnostic log is verbose (every screen evaluation, every
+      * automation stage attempt, raw on-screen text) by design, since that detail is
+      * exactly what's needed to tell why a skip/block/download did or didn't happen,
+      * but it's more than most day-to-day use needs. Turn on when actually
+      * troubleshooting or tuning keyword lists, then share/clear it when done. */
+    var isDiagnosticLoggingEnabled: Boolean
+        get() = prefs.getBoolean(KEY_DIAGNOSTIC_LOGGING_ENABLED, false)
+        set(value) = prefs.edit().putBoolean(KEY_DIAGNOSTIC_LOGGING_ENABLED, value).apply()
+
     /** Which app package(s) the service is allowed to read/act on - a list (not one value)
       * since TikTok ships under different package names by region/variant (see README). */
     var targetPackages: List<String>
@@ -136,6 +145,7 @@ class SettingsRepository(context: Context) {
         private const val KEY_BLOCKED_CREATOR_SKIP_ENABLED = "blocked_creator_skip_enabled"
         private const val KEY_REAL_BLOCK_ENABLED = "real_block_automation_enabled"
         private const val KEY_OVERLAY_ENABLED = "overlay_enabled"
+        private const val KEY_DIAGNOSTIC_LOGGING_ENABLED = "diagnostic_logging_enabled"
         private const val KEY_TARGET_PACKAGES = "target_packages"
         private const val KEY_AD_KEYWORDS = "ad_keywords"
         private const val KEY_BLOCKED_CREATORS = "blocked_creators"

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Exposes this app's internal files directory (where diagnostics.log lives) for
+     sharing via FileProvider - nothing else is stored there, so exposing the whole
+     directory is equivalent to exposing just the one file. -->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <files-path name="diagnostics" path="." />
+</paths>
