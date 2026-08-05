@@ -39,4 +39,51 @@
         android:paddingBottom="10dp"
         android:elevation="8dp" />
 
+    <!-- Hidden until "Download" is tapped - lets you pick Video (just TikTok's own
+         Save) or Audio (Save, then extract the audio track) instead of assuming one. -->
+    <LinearLayout
+        android:id="@+id/downloadChoiceContainer"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="6dp"
+        android:visibility="gone">
+
+        <Button
+            android:id="@+id/overlayDownloadVideoButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:text="Video"
+            android:textSize="10sp"
+            android:textAllCaps="false"
+            android:textColor="#ffffff"
+            android:backgroundTint="#1565c0"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:layout_marginEnd="6dp"
+            android:elevation="8dp" />
+
+        <Button
+            android:id="@+id/overlayDownloadAudioButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:text="Audio"
+            android:textSize="10sp"
+            android:textAllCaps="false"
+            android:textColor="#ffffff"
+            android:backgroundTint="#1565c0"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:elevation="8dp" />
+
+    </LinearLayout>
+
 </LinearLayout>

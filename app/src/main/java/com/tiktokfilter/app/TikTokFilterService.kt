@@ -8,6 +8,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import com.tiktokfilter.app.diagnostics.DiagnosticLog
 import com.tiktokfilter.app.filter.FilterEngine
 import com.tiktokfilter.app.overlay.OverlayController
+import com.tiktokfilter.app.tiktokactions.DownloadMode
 import com.tiktokfilter.app.tiktokactions.TikTokActionCoordinator
 
 /**
@@ -38,7 +39,8 @@ class TikTokFilterService : AccessibilityService() {
             service = this,
             diagnosticLog = diagnosticLog,
             onBlockTapped = { handleOverlayBlockTapped() },
-            onDownloadTapped = { handleOverlayDownloadTapped() }
+            onDownloadVideoTapped = { handleOverlayDownloadTapped(DownloadMode.VIDEO_ONLY) },
+            onDownloadAudioTapped = { handleOverlayDownloadTapped(DownloadMode.AUDIO_ONLY) }
         )
         diagnosticLog.log("SERVICE", "onServiceConnected")
     }
@@ -134,8 +136,9 @@ class TikTokFilterService : AccessibilityService() {
     /** Same fresh-snapshot approach as [handleOverlayBlockTapped] - Download needs to know
       * whether the current screen is a Live room before starting the tap sequence, since
       * there's no video file to save from a live broadcast (see
-      * TikTokActionCoordinator.startDownloadCurrentVideo). */
-    private fun handleOverlayDownloadTapped() {
+      * TikTokActionCoordinator.startDownloadCurrentVideo). [mode] reflects which of the
+      * overlay's Video/Audio choice buttons was tapped. */
+    private fun handleOverlayDownloadTapped(mode: DownloadMode) {
         val root = rootInActiveWindow
         if (root == null) {
             statsRepository.recordEvent("Download tapped but no screen content was available")
@@ -148,8 +151,8 @@ class TikTokFilterService : AccessibilityService() {
         root.recycle()
 
         val isLive = FilterEngine.isLiveStream(texts, settingsRepository.liveIndicatorKeywords)
-        diagnosticLog.log("OVERLAY", "Download tapped (live=$isLive)")
-        actionCoordinator.startDownloadCurrentVideo(isLive)
+        diagnosticLog.log("OVERLAY", "Download tapped, mode=$mode (live=$isLive)")
+        actionCoordinator.startDownloadCurrentVideo(mode, isLive)
     }
 
     /** Depth-first collection of every text/contentDescription string in the current

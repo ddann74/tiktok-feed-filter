@@ -15,6 +15,12 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
 
+/** Which of the two things the Download button was asked for - see
+  * [TikTokActionCoordinator.startDownloadCurrentVideo]. Both start with the identical
+  * tap sequence (TikTok's own Save option); only what happens once that completes
+  * differs. */
+enum class DownloadMode { VIDEO_ONLY, AUDIO_ONLY }
+
 /**
  * Owns the two multi-tap TikTok automations (real Block, and Download-then-extract-audio):
  * advancing each one's [ActionSequence] by searching the accessibility tree for its
@@ -37,6 +43,7 @@ class TikTokActionCoordinator(
 ) {
     private var pendingBlock: ActionSequence? = null
     private var pendingDownload: ActionSequence? = null
+    private var pendingDownloadMode: DownloadMode = DownloadMode.AUDIO_ONLY
     private var downloadTriggeredAtEpochSeconds: Long = 0L
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -64,17 +71,27 @@ class TikTokActionCoordinator(
     /** No-op (with a clear log/activity entry) if [isLive] - a Live broadcast has no
       * saved video file for TikTok's own Save option to act on, so there's nothing here
       * to download; starting the tap sequence anyway would just stall out on a 4-second
-      * timeout searching for a "Save video" option that was never going to appear. */
-    fun startDownloadCurrentVideo(isLive: Boolean = false) {
+      * timeout searching for a "Save video" option that was never going to appear.
+      *
+      * [mode] controls what happens once TikTok's Save tap sequence completes - both
+      * modes trigger the identical tap sequence (there's no separate "video-only" button
+      * inside TikTok itself), they only differ in what this app does afterward:
+      * [DownloadMode.VIDEO_ONLY] stops there (the video is already in the device's media
+      * library, same as if you'd tapped Save yourself); [DownloadMode.AUDIO_ONLY] also
+      * locates that file and extracts its audio track. Either way the video itself stays
+      * in the media library - this never deletes anything TikTok saved. */
+    fun startDownloadCurrentVideo(mode: DownloadMode, isLive: Boolean = false) {
         if (isLive) {
             statsRepository.recordEvent("Download isn't available on Live streams")
             diagnosticLog.log("DOWNLOAD", "skipped - current screen is a Live stream")
             return
         }
         pendingDownload = ActionSequence(settingsRepository.downloadActionStages(), System.currentTimeMillis())
+        pendingDownloadMode = mode
         downloadTriggeredAtEpochSeconds = System.currentTimeMillis() / 1000
-        statsRepository.recordEvent("Attempting to download the current video...")
-        diagnosticLog.log("DOWNLOAD", "sequence started, stages=${settingsRepository.downloadActionStages()}")
+        val label = if (mode == DownloadMode.AUDIO_ONLY) "the current video (audio will be extracted)" else "the current video"
+        statsRepository.recordEvent("Attempting to download $label...")
+        diagnosticLog.log("DOWNLOAD", "sequence started, mode=$mode, stages=${settingsRepository.downloadActionStages()}")
     }
 
     /** Call on every accessibility event for the target app while either automation
@@ -92,8 +109,13 @@ class TikTokActionCoordinator(
         pendingDownload = advance(
             "DOWNLOAD", pendingDownload, root, now,
             onComplete = {
-                statsRepository.recordEvent("Download tapped - locating the saved file...")
-                locateAndExtractAudio(downloadTriggeredAtEpochSeconds, attempt = 0)
+                if (pendingDownloadMode == DownloadMode.VIDEO_ONLY) {
+                    statsRepository.recordEvent("Video saved via TikTok's own Save option")
+                    diagnosticLog.log("DOWNLOAD", "video-only - done, no audio extraction requested")
+                } else {
+                    statsRepository.recordEvent("Download tapped - locating the saved file...")
+                    locateAndExtractAudio(downloadTriggeredAtEpochSeconds, attempt = 0)
+                }
             },
             onTimeout = { statsRepository.recordEvent("Couldn't find a Download option for this video - it may not be enabled by the creator") }
         )

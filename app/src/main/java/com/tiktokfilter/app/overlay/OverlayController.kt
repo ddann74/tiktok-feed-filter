@@ -22,7 +22,8 @@ class OverlayController(
     private val service: AccessibilityService,
     private val diagnosticLog: DiagnosticLog,
     private val onBlockTapped: () -> Unit,
-    private val onDownloadTapped: () -> Unit
+    private val onDownloadVideoTapped: () -> Unit,
+    private val onDownloadAudioTapped: () -> Unit
 ) {
     private val windowManager = service.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private var overlayView: View? = null
@@ -34,7 +35,22 @@ class OverlayController(
 
         val view = LayoutInflater.from(service).inflate(R.layout.overlay_buttons, null)
         view.findViewById<View>(R.id.overlayBlockButton).setOnClickListener { onBlockTapped() }
-        view.findViewById<View>(R.id.overlayDownloadButton).setOnClickListener { onDownloadTapped() }
+
+        // "Download" itself doesn't download anything - it just reveals the Video/Audio
+        // choice buttons underneath it (or hides them again if already showing), so a
+        // stray tap never kicks off an automation before you've picked which you want.
+        val choiceContainer = view.findViewById<View>(R.id.downloadChoiceContainer)
+        view.findViewById<View>(R.id.overlayDownloadButton).setOnClickListener {
+            choiceContainer.visibility = if (choiceContainer.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+        }
+        view.findViewById<View>(R.id.overlayDownloadVideoButton).setOnClickListener {
+            choiceContainer.visibility = View.GONE
+            onDownloadVideoTapped()
+        }
+        view.findViewById<View>(R.id.overlayDownloadAudioButton).setOnClickListener {
+            choiceContainer.visibility = View.GONE
+            onDownloadAudioTapped()
+        }
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,

@@ -69,8 +69,9 @@ covered by the Accessibility permission you grant in Setup.
   `@handle` detection `FilterEngine` uses) and adds them to your local Blocked Creators
   list immediately - then, if **Really block in TikTok** is on, also attempts the real
   TikTok block automation described below.
-- **Download** attempts the download-and-extract-audio automation described below for
-  whatever video is currently on screen.
+- **Download** doesn't download anything by itself - tapping it reveals two smaller
+  buttons, **Video** and **Audio**, so you choose which one you actually want before
+  anything happens (see below).
 
 Turn the buttons off under **Show floating Block/Download buttons** in Setup if you'd
 rather use the in-app Blocked Creators list only, without anything drawn over TikTok.
@@ -91,23 +92,31 @@ under **Really block in TikTok (not just skip)** to fall back to local-list-only
 blocking, which is faster to fail-safe if the automation is ever unreliable on your
 TikTok version.
 
-**Downloading + extracting audio** taps: the video's "more options" menu → **Save
-video** (TikTok's own official download option). If a creator has disabled downloads
-for their video, this option simply doesn't exist on screen, the tap sequence times
-out, and the **Activity** log says the download wasn't available for that video.
+**Both Video and Audio start the exact same tap sequence** - the video's "more options"
+menu → **Save video** (TikTok's own official download option) - since that's the only
+download TikTok itself offers; there's no separate "video only" button inside TikTok to
+find. What happens after that tap sequence completes is where they differ:
+
+- **Video** stops there. The video is now in your device's media library, same as if
+  you'd tapped Save yourself - nothing more happens.
+- **Audio** additionally looks for that newly-saved video in the device's media library
+  (polling briefly, since the file isn't necessarily written the instant the tap
+  registers), then extracts its audio track on-device - pure container remuxing via
+  Android's built-in `MediaExtractor`/`MediaMuxer`, no re-encoding, no external library,
+  no network call of any kind - and saves it as an `.m4a` file under this app's own
+  external files directory (`Android/data/com.tiktokfilter.app/files/ExtractedAudio/`,
+  visible to any file manager, cleared if the app is uninstalled). **The video itself is
+  left in place too** - this app never deletes anything TikTok saved, so choosing Audio
+  leaves you with both the video and a separate audio file, not just the audio.
+
+If a creator has disabled downloads for their video, the **Save video** option simply
+doesn't exist on screen for either choice, the tap sequence times out, and the
+**Activity** log says the download wasn't available for that video.
 
 **This app will never try to download a video whose creator has disabled downloads by
 any other means (e.g. screen-recording to bypass that setting).** That's a deliberate
 line: automating a button on your own phone is one thing, circumventing a creator's
 explicit choice about their own content is another, and this app only does the former.
-
-Once a download succeeds, the app looks for the newly-saved video in the device's media
-library (polling briefly, since the file isn't necessarily written the instant the tap
-registers), then extracts its audio track on-device - pure container remuxing via
-Android's built-in `MediaExtractor`/`MediaMuxer`, no re-encoding, no external library,
-no network call of any kind - and saves it as an `.m4a` file under this app's own
-external files directory (`Android/data/com.tiktokfilter.app/files/ExtractedAudio/`,
-visible to any file manager, cleared if the app is uninstalled).
 
 The four keyword lists under **Real TikTok Integration** in Setup control what each tap
 sequence looks for - "More Options" Button Labels, "Block" Menu Option Labels, Block
