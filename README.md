@@ -46,6 +46,13 @@ pattern-matching against their labels, which means:
 - **It could theoretically false-positive** on a normal video whose caption happens to
   contain a configured ad keyword, or tap the wrong menu item if TikTok reuses a label
   in an unexpected place. Keep keyword lists specific.
+- **TikTok preloads several videos ahead of the one you're watching, and all of their
+  accessibility nodes are present at once.** A real diagnostic log caught this directly:
+  a preloaded, not-yet-visible video's ad marker showed up in the same screen read as
+  the video actually on screen, several videos earlier. Ad-keyword and blocked-creator
+  matching are both scoped to just the current video's own text (`FilterEngine.evaluate`
+  truncates at the next preloaded video's boundary) specifically because of this - so a
+  skip is never triggered by something that hasn't scrolled into view yet.
 - **The three-step Block automation and two-step Download automation can each stall
   partway through** if a step's keyword doesn't match what's actually on screen (a menu
   that didn't open, wording that changed, a step that doesn't exist for a given video).
@@ -309,6 +316,13 @@ extraction uses only Android's built-in media APIs.
   option in the first place - is a best-effort guess, not confirmed against a live
   TikTok install, same caveat as the rest of Real TikTok Integration. The Shop tab has
   its own on-screen layout too and still isn't handled at all.
+- `FilterEngine.isLiveStream` isn't scoped the way ad/creator matching now is (see
+  above) - it's an unscoped "does the **LIVE** badge appear anywhere on screen" check.
+  This hasn't caused a confirmed problem yet, but TikTok is known to show a "Live now"
+  preview rail on top of an otherwise normal FYP video, which could in theory make a
+  normal video look like a Live room. Worth scoping the same way if this ever causes a
+  wrong Live detection - the Diagnostic Log's `live=true/false` tag on every `[FILTER]`
+  line is the first place to check.
 - Audio extraction assumes TikTok's saved video uses an audio codec `MediaMuxer` can
   remux into an MP4/M4A container (AAC, in practice) - if TikTok ever used something
   else, extraction for that file would fail and log accordingly rather than silently

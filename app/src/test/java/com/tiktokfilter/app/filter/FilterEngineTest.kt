@@ -176,6 +176,59 @@ class FilterEngineTest {
     }
 
     @Test
+    fun `an ad keyword belonging to a preloaded next video does not skip the current video`() {
+        // Reproduces a real diagnostic log: the currently-visible video (HistoryEgghead)
+        // is not an ad, but TikTok has already preloaded the next video (John Kiriakou)
+        // several slots ahead, and that one's "Ad starts in 5s" marker shows up in the
+        // exact same screen read - well before the user has scrolled anywhere near it.
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf(
+                "HistoryEgghead profile", "Follow HistoryEgghead", "Like video 13.7K likes",
+                "HistoryEgghead", "For 3,000 years they were cherished. Then the 1800s happened.", "Video",
+                "John Kiriakou profile", "Follow John Kiriakou", "Like video 4,755 likes",
+                "John Kiriakou", "The Viral Lie That Sent 60,000 Migrants to Spain", "Ad starts in 5s", "Video",
+                "vhfg profile", "Follow vhfg"
+            ),
+            adKeywordsEnabled = true,
+            adKeywords = listOf("Sponsored", "Ad starts in"),
+            blockedCreatorsEnabled = false,
+            blockedCreators = emptySet()
+        )
+        assertNull(decision)
+    }
+
+    @Test
+    fun `an ad keyword belonging to the actual current video does skip it`() {
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf(
+                "SomeBrand profile", "Follow SomeBrand", "SomeBrand", "Buy our thing", "Ad starts in 5s", "Video",
+                "NextCreator profile", "Follow NextCreator"
+            ),
+            adKeywordsEnabled = true,
+            adKeywords = listOf("Sponsored", "Ad starts in"),
+            blockedCreatorsEnabled = false,
+            blockedCreators = emptySet()
+        )
+        assertEquals(SkipReason.AD, decision?.reason)
+        assertEquals("Ad starts in", decision?.detail)
+    }
+
+    @Test
+    fun `a blocked creator further down in preloaded videos does not skip the current video`() {
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf(
+                "Current Creator profile", "Follow Current Creator", "a normal caption", "Video",
+                "Annoying Account profile", "Follow Annoying Account"
+            ),
+            adKeywordsEnabled = false,
+            adKeywords = emptyList(),
+            blockedCreatorsEnabled = true,
+            blockedCreators = setOf("annoying account")
+        )
+        assertNull(decision)
+    }
+
+    @Test
     fun `extractHandle falls back to the display name in a profile content description`() {
         // Confirmed against a real device's diagnostic log - current TikTok builds never
         // render a bare "@handle" node, only a "<name> profile" content description.

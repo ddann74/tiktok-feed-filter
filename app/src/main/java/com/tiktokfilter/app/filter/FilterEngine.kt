@@ -15,7 +15,10 @@ data class SkipDecision(val reason: SkipReason, val detail: String)
  * Both signals are inherently heuristic: there's no official API for "is this an ad" or
  * "who posted this", only reading whatever text TikTok happens to be rendering right now.
  * TikTok changing its UI wording or layout can silently break either one - see the
- * project README for how to notice and fix that without a rebuild.
+ * project README for how to notice and fix that without a rebuild. Both are also scoped
+ * to just the video actually on screen (see [currentVideoTexts]) - the flat text list
+ * passed in also contains preloaded, not-yet-visible videos further down the feed, and
+ * matching against those would react to a video the user hasn't scrolled to yet.
  */
 object FilterEngine {
 
@@ -45,24 +48,47 @@ object FilterEngine {
         // Expected already-normalized (lowercase, no leading '@') - see normalizeHandle.
         blockedCreators: Set<String>
     ): SkipDecision? {
+        // TikTok preloads several videos ahead, and every one of their nodes shows up in
+        // the same flat text list [TikTokFilterService.collectText] produces - a real
+        // diagnostic log confirmed a preloaded, not-yet-visible video's "Ad starts in 5s"
+        // marker sitting in the *same* screen read as the video actually on screen,
+        // several videos before it. Matching against the raw list would react to a video
+        // the user hasn't scrolled to yet; currentVideoTexts keeps both checks below
+        // scoped to only the video actually visible.
+        val visibleVideoTexts = currentVideoTexts(screenTexts)
+
         // Blocked-creator match is checked first: it's a specific, near-exact signal,
         // whereas ad-keyword matching is a plain substring search and more prone to a
         // false positive (e.g. a caption that happens to mention "sponsored").
         if (blockedCreatorsEnabled) {
-            val handle = extractHandle(screenTexts)
+            val handle = extractHandle(visibleVideoTexts)
             if (handle != null && blockedCreators.contains(normalizeHandle(handle))) {
                 return SkipDecision(SkipReason.BLOCKED_CREATOR, handle)
             }
         }
         if (adKeywordsEnabled) {
             val matchedKeyword = adKeywords.firstOrNull { keyword ->
-                keyword.isNotBlank() && screenTexts.any { it.contains(keyword, ignoreCase = true) }
+                keyword.isNotBlank() && visibleVideoTexts.any { it.contains(keyword, ignoreCase = true) }
             }
             if (matchedKeyword != null) {
                 return SkipDecision(SkipReason.AD, matchedKeyword)
             }
         }
         return null
+    }
+
+    /** Truncates [screenTexts] to just the current video's own contiguous block - from
+      * the start of the list up to (but not including) the *second* "<name> profile"
+      * match, if there is one. TikTok's traversal order puts one video's own nodes
+      * together, starting at its "<name> profile" node, immediately followed by the
+      * next (preloaded) video's nodes - so the second such match marks where the
+      * current video's own content ends. If there's only one match (or none - e.g. a
+      * Live room, which doesn't use this pattern), the whole list is already scoped
+      * correctly, so it's returned unchanged. */
+    private fun currentVideoTexts(screenTexts: List<String>): List<String> {
+        val profileIndexes = screenTexts.indices.filter { profileContentDescriptionRegex.matches(screenTexts[it].trim()) }
+        if (profileIndexes.size < 2) return screenTexts
+        return screenTexts.subList(0, profileIndexes[1])
     }
 
     /** Despite the name, this returns whatever TikTok actually exposes for the current
