@@ -106,6 +106,14 @@
         android:textSize="18sp"
         android:textColor="#00c853"
         android:textStyle="bold"
+        android:layout_marginBottom="4dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Enter the creator's display name exactly as it appears on their profile (not their @username) - TikTok doesn't expose @usernames to accessibility services, only the display name."
+        android:textColor="#888888"
+        android:textSize="11sp"
         android:layout_marginBottom="8dp" />
 
     <LinearLayout
@@ -119,7 +127,7 @@
             android:layout_width="0dp"
             android:layout_height="48dp"
             android:layout_weight="1"
-            android:hint="@handle"
+            android:hint="Display name"
             android:textColor="#ffffff"
             android:textColorHint="#888888"
             android:background="#2a2a2a"

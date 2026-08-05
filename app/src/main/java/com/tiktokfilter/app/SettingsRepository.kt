@@ -195,7 +195,10 @@ class SettingsRepository(context: Context) {
         // used for TikTok in some regions/older builds. Both are included by default so
         // the app works out of the box for most installs; add/remove in Setup if needed.
         val DEFAULT_TARGET_PACKAGES = listOf("com.zhiliaoapp.musically", "com.ss.android.ugc.trill")
-        val DEFAULT_AD_KEYWORDS = listOf("Sponsored")
+        // "Sponsored" covers TikTok's own labeled promotions; "Ad starts in" is the
+        // wording confirmed against a real device's diagnostic log for TikTok's in-feed
+        // ad countdown ("Ad starts in 5s") - the actual most common case in practice.
+        val DEFAULT_AD_KEYWORDS = listOf("Sponsored", "Ad starts in")
 
         // Best-effort candidate labels for TikTok's own UI - not verified against a live
         // device, editable in Setup. See README for what to do if a tap sequence stalls.

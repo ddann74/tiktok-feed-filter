@@ -261,7 +261,7 @@ class MainActivity : AppCompatActivity() {
         val inflater = LayoutInflater.from(this)
         for (normalizedHandle in settingsRepository.blockedCreators) {
             val row = inflater.inflate(R.layout.list_item_row, container, false)
-            row.findViewById<TextView>(R.id.rowText).text = "@$normalizedHandle"
+            row.findViewById<TextView>(R.id.rowText).text = normalizedHandle
             val checkbox = row.findViewById<CheckBox>(R.id.rowCheckbox)
             val removeButton = row.findViewById<Button>(R.id.rowRemoveButton)
 

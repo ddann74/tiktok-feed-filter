@@ -34,6 +34,19 @@ class FilterEngineTest {
     }
 
     @Test
+    fun `Ad starts in countdown text fires AD - the actual wording seen on a real device`() {
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf("Some Brand profile", "Ad starts in 5s", "a caption"),
+            adKeywordsEnabled = true,
+            adKeywords = listOf("Sponsored", "Ad starts in"),
+            blockedCreatorsEnabled = false,
+            blockedCreators = emptySet()
+        )
+        assertEquals(SkipReason.AD, decision?.reason)
+        assertEquals("Ad starts in", decision?.detail)
+    }
+
+    @Test
     fun `ad keyword match is case-insensitive`() {
         val decision = FilterEngine.evaluate(
             screenTexts = listOf("@brand", "sponsored content below"),
@@ -160,6 +173,45 @@ class FilterEngineTest {
             false,
             FilterEngine.isLiveStream(listOf("@some_host", "come live your best life"), listOf("LIVE"))
         )
+    }
+
+    @Test
+    fun `extractHandle falls back to the display name in a profile content description`() {
+        // Confirmed against a real device's diagnostic log - current TikTok builds never
+        // render a bare "@handle" node, only a "<name> profile" content description.
+        val handle = FilterEngine.extractHandle(
+            listOf("Adam Bannon | Cricket USA 🏏 profile", "Follow Adam Bannon | Cricket USA 🏏", "Like video 2,729 likes")
+        )
+        assertEquals("Adam Bannon | Cricket USA 🏏", handle)
+    }
+
+    @Test
+    fun `extractHandle prefers a bare at-handle node over a profile content description if both exist`() {
+        val handle = FilterEngine.extractHandle(listOf("@real_handle", "Someone Else profile"))
+        assertEquals("@real_handle", handle)
+    }
+
+    @Test
+    fun `extractHandle takes the first profile match when multiple videos' nodes are present`() {
+        // TikTok preloads the next video's nodes too - the current video's is always
+        // first in traversal order, which is what the real diagnostic log confirmed.
+        val handle = FilterEngine.extractHandle(
+            listOf("Current Creator profile", "Follow Current Creator", "Next Creator profile", "Follow Next Creator")
+        )
+        assertEquals("Current Creator", handle)
+    }
+
+    @Test
+    fun `blocked creator matches via a display name pulled from a profile content description`() {
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf("John Kiriakou profile", "Follow John Kiriakou", "255 comments"),
+            adKeywordsEnabled = false,
+            adKeywords = emptyList(),
+            blockedCreatorsEnabled = true,
+            blockedCreators = setOf("john kiriakou")
+        )
+        assertEquals(SkipReason.BLOCKED_CREATOR, decision?.reason)
+        assertEquals("John Kiriakou", decision?.detail)
     }
 
     @Test

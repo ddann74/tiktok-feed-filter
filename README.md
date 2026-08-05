@@ -16,8 +16,8 @@ you would.
   accessibility node tree - no screenshots, no screen recording), and hands that off to
   a pure decision function.
 - **`FilterEngine`** decides, from that text alone, whether the current video is an ad
-  (keyword match) or from a blocked creator (`@handle` match), and the service dispatches
-  a swipe-up gesture if so - the same gesture a finger would perform.
+  (keyword match) or from a blocked creator (display name match - see below) and the
+  service dispatches a swipe-up gesture if so, the same gesture a finger would perform.
 - **Floating Block/Download buttons** are drawn over TikTok whenever it's in the
   foreground (an accessibility overlay window - see *Floating buttons*, below).
 - **Real TikTok integration** (`TikTokActionCoordinator`) drives two multi-tap
@@ -56,6 +56,33 @@ pattern-matching against their labels, which means:
   tell what's going wrong, turn on the **Diagnostic Log** (below) and try again - it
   shows the exact on-screen text each decision was based on.
 
+## Identifying a creator
+
+Every blocked-creator match - auto-skip, and the floating **Block** button - depends on
+correctly figuring out who posted the video currently on screen, and this is worth being
+explicit about since it changed based on what a real device's diagnostic log showed:
+
+**TikTok does not expose the creator's `@username` to accessibility services on current
+builds.** The original design assumed a text node reading exactly `@handle` would be
+there; testing against a live device's diagnostic log showed that never happens - not
+once across hundreds of screen reads. What TikTok *does* expose is the creator's
+**display name**, via a content description reading `"<name> profile"` next to the
+video. `FilterEngine.extractHandle` still checks for a bare `@handle` node first (in
+case a future TikTok build brings it back), but in practice today it always falls
+through to the display name.
+
+**This means Blocked Creators entries need to be the creator's display name as shown on
+their profile, not their `@username`.** These are usually similar or identical, but
+not guaranteed to be - and display names, unlike `@usernames`, aren't guaranteed unique
+across different accounts, so this is a real (if uncommon) false-positive risk worth
+knowing about, not just a theoretical one.
+
+When more than one video's nodes are present in the accessibility tree at once (TikTok
+preloads the next video while you're still watching the current one), the *first*
+`"<name> profile"` match is used - confirmed against real logs to consistently be the
+creator of whichever video is actually visible, with preloaded videos' nodes always
+appearing later in the tree.
+
 ## Floating buttons
 
 Two small buttons - **Block** (red) and **Download** (blue) - appear near the edge of
@@ -66,9 +93,9 @@ an accessibility service can request this particular window type, and it's alrea
 covered by the Accessibility permission you grant in Setup.
 
 - **Block** identifies the creator of whatever video is currently on screen (the same
-  `@handle` detection `FilterEngine` uses) and adds them to your local Blocked Creators
-  list immediately - then, if **Really block in TikTok** is on, also attempts the real
-  TikTok block automation described below.
+  display-name detection `FilterEngine` uses - see *Identifying a creator*, below) and
+  adds them to your local Blocked Creators list immediately - then, if **Really block in
+  TikTok** is on, also attempts the real TikTok block automation described below.
 - **Download** doesn't download anything by itself - tapping it reveals two smaller
   buttons, **Video** and **Audio**, so you choose which one you actually want before
   anything happens (see below).
@@ -134,11 +161,12 @@ assuming everything above just applies unchanged:
   on screen - a separate, editable keyword list (**Live Streams** section in Setup)
   from the ad/creator ones above, since it's answering a different question ("is this a
   Live room at all") rather than "who posted this" or "is this an ad".
-- **Auto-skipping a blocked creator's Live** uses the exact same `@handle` match and
-  swipe-away gesture as skipping their normal videos - no separate logic needed there,
-  since a Live room's host handle is just another piece of on-screen text. This is
-  controlled by its own toggle, **Skip Live streams from blocked creators** (default
-  on), independent of the video-skip toggles, in case you'd rather leave that off.
+- **Auto-skipping a blocked creator's Live** uses the exact same creator-identification
+  match (see *Identifying a creator*, above) and swipe-away gesture as skipping their
+  normal videos - no separate logic needed there, since a Live host's display name is
+  just another piece of on-screen text. This is controlled by its own toggle, **Skip
+  Live streams from blocked creators** (default on), independent of the video-skip
+  toggles, in case you'd rather leave that off.
 - **Really blocking** a Live host taps a different entry point than a video does - a
   Live room's own options/report menu, rather than a video's "..." button - configured
   by **Live Room Menu Entry Labels** in Setup. From there, it's assumed TikTok reuses
@@ -192,9 +220,11 @@ sharing it is always a manual, explicit action you take.
    an app can never enable it for itself.
 3. Grant the storage-read permission when prompted (only used to locate a video TikTok
    itself just saved, for audio extraction - see *Privacy*).
-4. Add any creators you want auto-skipped under **Blocked Creators** (with or without
-   the leading `@`, doesn't matter).
-5. Adjust **Ad Keywords** if needed - "Sponsored" is the default and covers most cases.
+4. Add any creators you want auto-skipped under **Blocked Creators**, using their
+   **display name** as shown on their profile (not their `@username` - see *Identifying
+   a creator*, above); the leading `@`, if you include one, is stripped automatically.
+5. Adjust **Ad Keywords** if needed - "Sponsored" and "Ad starts in" are the defaults
+   and cover the two ad formats confirmed against a real device.
 6. Leave **Really block in TikTok**, **Show floating Block/Download buttons**, and
    **Skip Live streams from blocked creators** on (all default on) if you want the
    fuller feature set; turn any off if you'd rather stick to passive skip-only
@@ -265,10 +295,11 @@ extraction uses only Android's built-in media APIs.
 
 ## Known open items
 
-- The blocked-creator detector relies on TikTok rendering the current video's creator
-  as its own text node reading exactly `@handle`. This has been true in testing but
-  isn't a documented, stable contract - if it stops matching, that's the first thing
-  to check.
+- The blocked-creator detector matches on the creator's **display name**, not their
+  `@username` (see *Identifying a creator*, above) - confirmed against a real device's
+  diagnostic log, where TikTok never rendered an `@handle` node at all. Display names
+  aren't guaranteed unique the way `@usernames` are, so this is a real, if uncommon,
+  false-positive risk - not just a theoretical one.
 - The Block and Download tap sequences (`moreOptionsKeywords`, `blockOptionKeywords`,
   `blockConfirmKeywords`, `downloadOptionKeywords`) are the least verified part of this
   app - the exact menu structure and button wording were not confirmed against a live
