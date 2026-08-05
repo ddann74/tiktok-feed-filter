@@ -99,6 +99,18 @@ the separate "display over other apps" permission most floating-bubble apps do -
 an accessibility service can request this particular window type, and it's already
 covered by the Accessibility permission you grant in Setup.
 
+**If the buttons flash or blink instead of staying put**, that was a real bug (fixed):
+`TikTokFilterService` used to hide the overlay the instant it saw a single accessibility
+event from any package other than TikTok - which included events the overlay's *own*
+window can generate just by redrawing, plus anything from system UI, a keyboard, etc.
+momentarily interleaving with TikTok's events. It now ignores events from this app's own
+package outright, and only hides on a short delay after TikTok's events actually stop -
+cancelled immediately if a TikTok event arrives first - so a stray one-off event no
+longer visibly flashes the overlay off and back on. If you still see flashing after
+updating, it means something is generating those stray events more persistently than a
+short delay can smooth over - the **Diagnostic Log**'s `[OVERLAY] shown` / `[OVERLAY]
+hidden` lines will show exactly how often it's actually toggling.
+
 - **Block** identifies the creator of whatever video is currently on screen (the same
   display-name detection `FilterEngine` uses - see *Identifying a creator*, below) and
   adds them to your local Blocked Creators list immediately - then, if **Really block in

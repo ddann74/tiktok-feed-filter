@@ -3,6 +3,8 @@ package com.tiktokfilter.app
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.graphics.Path
+import android.os.Handler
+import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.tiktokfilter.app.diagnostics.DiagnosticLog
@@ -29,6 +31,11 @@ class TikTokFilterService : AccessibilityService() {
     private lateinit var overlayController: OverlayController
     private var lastSkipMillis: Long = 0L
 
+    private val mainHandler = Handler(Looper.getMainLooper())
+    // A single reusable Runnable so scheduling it again (or cancelling it) always
+    // targets every currently-pending instance - see the debounce comment below.
+    private val hideOverlayRunnable = Runnable { overlayController.hide() }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         settingsRepository = SettingsRepository(this)
@@ -47,10 +54,25 @@ class TikTokFilterService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val packageName = event?.packageName?.toString() ?: return
+
+        // The overlay's own buttons are drawn in a window that belongs to this app, so
+        // interacting with them (or the window just redrawing) can itself generate an
+        // accessibility event tagged with this app's package - reacting to that as "the
+        // user left TikTok" would hide the overlay out from under the tap that's still
+        // landing on it. Never a real signal either way, so just ignore it.
+        if (packageName == this.packageName) return
+
         if (packageName !in settingsRepository.targetPackages) {
-            overlayController.hide()
+            // Don't hide the instant a single event from some other package shows up -
+            // system UI, a keyboard, a notification icon updating, etc. can all fire one
+            // while TikTok is still genuinely in front. A real switch away from TikTok is
+            // followed by silence from TikTok's own events, so a short delayed hide -
+            // cancelled below the moment a TikTok event arrives - tells the two apart
+            // without visibly flashing the overlay for every unrelated event in between.
+            mainHandler.postDelayed(hideOverlayRunnable, OVERLAY_HIDE_DELAY_MILLIS)
             return
         }
+        mainHandler.removeCallbacks(hideOverlayRunnable)
         if (settingsRepository.isOverlayEnabled) overlayController.show() else overlayController.hide()
 
         val root = rootInActiveWindow ?: return
@@ -104,6 +126,7 @@ class TikTokFilterService : AccessibilityService() {
 
     override fun onInterrupt() {
         diagnosticLog.log("SERVICE", "onInterrupt")
+        mainHandler.removeCallbacks(hideOverlayRunnable)
         overlayController.hide()
     }
 
@@ -192,5 +215,6 @@ class TikTokFilterService : AccessibilityService() {
         private const val COOLDOWN_MILLIS = 900L
         private const val SWIPE_DURATION_MILLIS = 250L
         private const val MAX_TREE_DEPTH = 60
+        private const val OVERLAY_HIDE_DELAY_MILLIS = 800L
     }
 }
