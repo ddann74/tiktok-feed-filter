@@ -314,6 +314,15 @@ extraction uses only Android's built-in media APIs.
 
 ## Known open items
 
+- **"Ad starts in" may never actually match anything, and that might be correct.**
+  A second diagnostic log showed the exact same pattern as the first: `"Ad starts in
+  5s"` appeared 222 times, always attached to a preloaded video several slots ahead,
+  never once the video actually on screen (the current-video scoping fix correctly
+  excluded all 222). It's possible this text is a preload-only marker that disappears
+  once that video actually becomes current, in which case no keyword can ever catch it
+  this way - there's no confirmed log yet of what an ad actually *looks like* while
+  genuinely playing on screen. If you see a real ad and skipping still doesn't fire,
+  that's the log worth capturing next.
 - The blocked-creator detector matches on the creator's **display name**, not their
   `@username` (see *Identifying a creator*, above) - confirmed against a real device's
   diagnostic log, where TikTok never rendered an `@handle` node at all. Display names
@@ -328,13 +337,21 @@ extraction uses only Android's built-in media APIs.
   option in the first place - is a best-effort guess, not confirmed against a live
   TikTok install, same caveat as the rest of Real TikTok Integration. The Shop tab has
   its own on-screen layout too and still isn't handled at all.
-- `FilterEngine.isLiveStream` isn't scoped the way ad/creator matching now is (see
-  above) - it's an unscoped "does the **LIVE** badge appear anywhere on screen" check.
-  This hasn't caused a confirmed problem yet, but TikTok is known to show a "Live now"
-  preview rail on top of an otherwise normal FYP video, which could in theory make a
-  normal video look like a Live room. Worth scoping the same way if this ever causes a
-  wrong Live detection - the Diagnostic Log's `live=true/false` tag on every `[FILTER]`
-  line is the first place to check.
+- **`FilterEngine.isLiveStream` false-positives constantly, confirmed against a real
+  diagnostic log** - `live=true` fired on 906 of 912 screen reads (99%) in a session
+  that was overwhelmingly normal video scrolling, not Live rooms. Cause: TikTok shows a
+  "Live now" preview rail (several `LIVE`-labeled entries, e.g. `"LIVE, GB News, LIVE,
+  Christina Podolyan, ..., 3 LIVE streams | 20 Stories"`) *inline within a normal
+  video's own screen*, not as a separate preloaded video - so the same current-video
+  scoping fix used for ad/creator matching doesn't fix this one, since the rail is
+  legitimately part of the current video's own text. The practical consequence: the
+  real Block automation almost always believes it's on a Live room and uses
+  `liveBlockActionStages()` instead of the normal video's tap sequence - this is a real,
+  currently-live risk to Block's reliability on ordinary videos, not just a Live-room
+  edge case. Not fixed here for lack of a confirmed example of what a screen where
+  you're *actually inside* a Live room looks like (as opposed to this rail) - the next
+  diagnostic log worth capturing is one from a few seconds spent actually watching a
+  real Live room, to find a signal that reliably tells the two apart.
 - Audio extraction assumes TikTok's saved video uses an audio codec `MediaMuxer` can
   remux into an MP4/M4A container (AAC, in practice) - if TikTok ever used something
   else, extraction for that file would fail and log accordingly rather than silently
