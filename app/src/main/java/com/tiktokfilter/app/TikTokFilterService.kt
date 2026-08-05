@@ -6,37 +6,63 @@ import android.graphics.Path
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.tiktokfilter.app.filter.FilterEngine
+import com.tiktokfilter.app.overlay.OverlayController
+import com.tiktokfilter.app.tiktokactions.TikTokActionCoordinator
 
 /**
  * Reads whatever text TikTok is currently rendering (via the accessibility tree) and, if
  * it looks like an ad or a blocked creator, dispatches a swipe-up gesture to skip past it -
  * the same mechanism a real finger swipe uses, since there's no official API for either
- * "is this an ad" or "skip this video". This only ever acts on the configured target
- * package(s) and never reads or acts on anything outside them.
+ * "is this an ad" or "skip this video". Also shows the floating Block/Download buttons
+ * while TikTok is in front, and drives whichever multi-tap TikTok automation (real Block,
+ * Download) is currently in flight via [TikTokActionCoordinator]. This only ever acts on
+ * the configured target package(s) and never reads or acts on anything outside them.
  */
 class TikTokFilterService : AccessibilityService() {
 
     private lateinit var settingsRepository: SettingsRepository
     private lateinit var statsRepository: StatsRepository
+    private lateinit var actionCoordinator: TikTokActionCoordinator
+    private lateinit var overlayController: OverlayController
     private var lastSkipMillis: Long = 0L
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         settingsRepository = SettingsRepository(this)
         statsRepository = StatsRepository(this)
+        actionCoordinator = TikTokActionCoordinator(this, settingsRepository, statsRepository)
+        overlayController = OverlayController(
+            service = this,
+            onBlockTapped = { handleOverlayBlockTapped() },
+            onDownloadTapped = { actionCoordinator.startDownloadCurrentVideo() }
+        )
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val packageName = event?.packageName?.toString() ?: return
-        if (packageName !in settingsRepository.targetPackages) return
+        if (packageName !in settingsRepository.targetPackages) {
+            overlayController.hide()
+            return
+        }
+        if (settingsRepository.isOverlayEnabled) overlayController.show() else overlayController.hide()
+
+        val root = rootInActiveWindow ?: return
+
+        // In-flight Block/Download automations advance independent of the skip cooldown
+        // below - they're triggered by a deliberate tap, not a per-video reaction, and
+        // have their own timeout (see TikTokActionCoordinator).
+        actionCoordinator.onScreenUpdated(root)
 
         // Right after a skip, TikTok is still loading/animating in the next video - reading
         // the screen during that window would evaluate a half-rendered video (or the one we
         // just skipped past) and could trigger a second, unwanted skip.
         val now = System.currentTimeMillis()
-        if (now - lastSkipMillis < COOLDOWN_MILLIS) return
+        if (now - lastSkipMillis < COOLDOWN_MILLIS) {
+            @Suppress("DEPRECATION")
+            root.recycle()
+            return
+        }
 
-        val root = rootInActiveWindow ?: return
         val texts = mutableListOf<String>()
         collectText(root, texts)
         @Suppress("DEPRECATION")
@@ -55,7 +81,31 @@ class TikTokFilterService : AccessibilityService() {
         performSkipGesture()
     }
 
-    override fun onInterrupt() {}
+    override fun onInterrupt() {
+        overlayController.hide()
+    }
+
+    /** The overlay button click arrives outside the normal event flow, so this reads a
+      * fresh snapshot of the current screen itself rather than relying on state left
+      * over from the last onAccessibilityEvent call. */
+    private fun handleOverlayBlockTapped() {
+        val root = rootInActiveWindow
+        if (root == null) {
+            statsRepository.recordEvent("Block tapped but no screen content was available")
+            return
+        }
+        val texts = mutableListOf<String>()
+        collectText(root, texts)
+        @Suppress("DEPRECATION")
+        root.recycle()
+
+        val handle = FilterEngine.extractHandle(texts)
+        if (handle == null) {
+            statsRepository.recordEvent("Block tapped but couldn't identify the current creator's handle")
+            return
+        }
+        actionCoordinator.startBlockCurrentCreator(handle)
+    }
 
     /** Depth-first collection of every text/contentDescription string in the current
       * window - the closest available substitute for "what does this screen say",

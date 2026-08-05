@@ -1,9 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Needed only to locate the video file TikTok's own Save action writes, so its
+         audio can be extracted - this app never requests broad storage access for any
+         other reason, and never touches the network. Split by API level since the
+         permission model for reading other apps' media changed at 33 (READ_MEDIA_VIDEO
+         replaced READ_EXTERNAL_STORAGE for this purpose) and again effectively at 29
+         (scoped storage) - both are declared so whichever applies on the device is
+         available; the OS ignores whichever one doesn't apply to its version. -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+
     <!-- No other permissions are needed: the accessibility service reads on-screen
          text via the accessibility APIs (granted separately, in Settings) and
-         nothing here ever touches the network or leaves the device. -->
+         nothing here ever touches the network. -->
 
     <application
         android:allowBackup="true"

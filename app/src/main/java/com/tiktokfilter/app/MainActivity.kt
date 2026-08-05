@@ -1,15 +1,22 @@
 package com.tiktokfilter.app
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.view.LayoutInflater
+import android.view.View
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import com.tiktokfilter.app.databinding.ActivityMainBinding
 
 class MainActivity : AppCompatActivity() {
@@ -17,6 +24,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var settingsRepository: SettingsRepository
     private lateinit var statsRepository: StatsRepository
+
+    private var isSelectModeActive = false
+    private val selectedCreators = mutableSetOf<String>()
 
     private val refreshHandler = Handler(Looper.getMainLooper())
     private val refreshRunnable = object : Runnable {
@@ -34,9 +44,12 @@ class MainActivity : AppCompatActivity() {
         settingsRepository = SettingsRepository(this)
         statsRepository = StatsRepository(this)
 
+        requestStoragePermissionIfNeeded()
         setupListeners()
         binding.adSkipSwitch.isChecked = settingsRepository.isAdSkipEnabled
         binding.blockedCreatorSkipSwitch.isChecked = settingsRepository.isBlockedCreatorSkipEnabled
+        binding.realBlockSwitch.isChecked = settingsRepository.isRealBlockAutomationEnabled
+        binding.overlaySwitch.isChecked = settingsRepository.isOverlayEnabled
         renderAllLists()
         refreshStats()
     }
@@ -52,6 +65,20 @@ class MainActivity : AppCompatActivity() {
         refreshHandler.removeCallbacks(refreshRunnable)
     }
 
+    /** Only needed to locate the video file TikTok's own Save action writes, so its
+      * audio can be extracted - see DownloadedVideoLocator. Nothing else in this app
+      * touches device storage. */
+    private fun requestStoragePermissionIfNeeded() {
+        val permission = if (Build.VERSION.SDK_INT >= 33) {
+            Manifest.permission.READ_MEDIA_VIDEO
+        } else {
+            Manifest.permission.READ_EXTERNAL_STORAGE
+        }
+        if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(permission), REQUEST_STORAGE_PERMISSION)
+        }
+    }
+
     private fun setupListeners() {
         binding.openAccessibilitySettingsButton.setOnClickListener {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -62,6 +89,12 @@ class MainActivity : AppCompatActivity() {
         binding.blockedCreatorSkipSwitch.setOnCheckedChangeListener { _, isChecked ->
             settingsRepository.isBlockedCreatorSkipEnabled = isChecked
         }
+        binding.realBlockSwitch.setOnCheckedChangeListener { _, isChecked ->
+            settingsRepository.isRealBlockAutomationEnabled = isChecked
+        }
+        binding.overlaySwitch.setOnCheckedChangeListener { _, isChecked ->
+            settingsRepository.isOverlayEnabled = isChecked
+        }
 
         binding.addBlockedCreatorButton.setOnClickListener {
             val handle = binding.blockedCreatorInput.text.toString().trim()
@@ -70,6 +103,9 @@ class MainActivity : AppCompatActivity() {
             binding.blockedCreatorInput.setText("")
             renderBlockedCreators()
         }
+        binding.toggleSelectModeButton.setOnClickListener { toggleSelectMode() }
+        binding.removeSelectedButton.setOnClickListener { removeSelectedCreators() }
+
         binding.addAdKeywordButton.setOnClickListener {
             val keyword = binding.adKeywordInput.text.toString().trim()
             if (keyword.isEmpty()) return@setOnClickListener
@@ -87,10 +123,54 @@ class MainActivity : AppCompatActivity() {
             renderTargetPackages()
         }
 
+        binding.addMoreOptionsKeywordButton.setOnClickListener {
+            val keyword = binding.moreOptionsKeywordInput.text.toString().trim()
+            if (keyword.isEmpty()) return@setOnClickListener
+            settingsRepository.addKeyword(settingsRepository::moreOptionsKeywords, keyword)
+            binding.moreOptionsKeywordInput.setText("")
+            renderMoreOptionsKeywords()
+        }
+        binding.addBlockOptionKeywordButton.setOnClickListener {
+            val keyword = binding.blockOptionKeywordInput.text.toString().trim()
+            if (keyword.isEmpty()) return@setOnClickListener
+            settingsRepository.addKeyword(settingsRepository::blockOptionKeywords, keyword)
+            binding.blockOptionKeywordInput.setText("")
+            renderBlockOptionKeywords()
+        }
+        binding.addBlockConfirmKeywordButton.setOnClickListener {
+            val keyword = binding.blockConfirmKeywordInput.text.toString().trim()
+            if (keyword.isEmpty()) return@setOnClickListener
+            settingsRepository.addKeyword(settingsRepository::blockConfirmKeywords, keyword)
+            binding.blockConfirmKeywordInput.setText("")
+            renderBlockConfirmKeywords()
+        }
+        binding.addDownloadOptionKeywordButton.setOnClickListener {
+            val keyword = binding.downloadOptionKeywordInput.text.toString().trim()
+            if (keyword.isEmpty()) return@setOnClickListener
+            settingsRepository.addKeyword(settingsRepository::downloadOptionKeywords, keyword)
+            binding.downloadOptionKeywordInput.setText("")
+            renderDownloadOptionKeywords()
+        }
+
         binding.clearStatsButton.setOnClickListener {
             statsRepository.clear()
             refreshStats()
         }
+    }
+
+    private fun toggleSelectMode() {
+        isSelectModeActive = !isSelectModeActive
+        selectedCreators.clear()
+        binding.removeSelectedButton.visibility = if (isSelectModeActive) View.VISIBLE else View.GONE
+        binding.toggleSelectModeButton.text = if (isSelectModeActive) "Cancel" else "Select"
+        renderBlockedCreators()
+    }
+
+    private fun removeSelectedCreators() {
+        if (selectedCreators.isEmpty()) return
+        settingsRepository.blockedCreators = settingsRepository.blockedCreators.filterNot { it in selectedCreators }
+        selectedCreators.clear()
+        toggleSelectMode() // leaves select mode after a bulk removal, matching a single-remove's implicit "done"
     }
 
     private fun refreshAccessibilityStatus() {
@@ -111,6 +191,7 @@ class MainActivity : AppCompatActivity() {
     private fun refreshStats() {
         binding.adsSkippedText.text = "Ads skipped: ${statsRepository.adsSkipped}"
         binding.creatorsSkippedText.text = "Creators skipped: ${statsRepository.creatorsSkipped}"
+        binding.audioExtractedText.text = "Audio saved: ${statsRepository.audioExtractionsCompleted}"
         val log = statsRepository.recentLog()
         binding.activityLogText.text = if (log.isEmpty()) "No activity yet" else log.joinToString("\n")
     }
@@ -119,12 +200,41 @@ class MainActivity : AppCompatActivity() {
         renderBlockedCreators()
         renderAdKeywords()
         renderTargetPackages()
+        renderMoreOptionsKeywords()
+        renderBlockOptionKeywords()
+        renderBlockConfirmKeywords()
+        renderDownloadOptionKeywords()
     }
 
+    /** Not built on the shared renderList helper (unlike every other list here) because
+      * it needs an extra per-row control - a checkbox that only appears in select mode,
+      * swapped in place of the usual Remove button rather than alongside it. */
     private fun renderBlockedCreators() {
-        renderList(binding.blockedCreatorsContainer, settingsRepository.blockedCreators.map { "@$it" }) { display ->
-            settingsRepository.removeBlockedCreator(display)
-            renderBlockedCreators()
+        val container = binding.blockedCreatorsContainer
+        container.removeAllViews()
+        val inflater = LayoutInflater.from(this)
+        for (normalizedHandle in settingsRepository.blockedCreators) {
+            val row = inflater.inflate(R.layout.list_item_row, container, false)
+            row.findViewById<TextView>(R.id.rowText).text = "@$normalizedHandle"
+            val checkbox = row.findViewById<CheckBox>(R.id.rowCheckbox)
+            val removeButton = row.findViewById<Button>(R.id.rowRemoveButton)
+
+            if (isSelectModeActive) {
+                checkbox.visibility = View.VISIBLE
+                checkbox.isChecked = normalizedHandle in selectedCreators
+                checkbox.setOnCheckedChangeListener { _, checked ->
+                    if (checked) selectedCreators.add(normalizedHandle) else selectedCreators.remove(normalizedHandle)
+                }
+                removeButton.visibility = View.GONE
+            } else {
+                checkbox.visibility = View.GONE
+                removeButton.visibility = View.VISIBLE
+                removeButton.setOnClickListener {
+                    settingsRepository.removeBlockedCreator(normalizedHandle)
+                    renderBlockedCreators()
+                }
+            }
+            container.addView(row)
         }
     }
 
@@ -139,6 +249,34 @@ class MainActivity : AppCompatActivity() {
         renderList(binding.targetPackagesContainer, settingsRepository.targetPackages) { pkg ->
             settingsRepository.targetPackages = settingsRepository.targetPackages.filterNot { it == pkg }
             renderTargetPackages()
+        }
+    }
+
+    private fun renderMoreOptionsKeywords() {
+        renderList(binding.moreOptionsKeywordsContainer, settingsRepository.moreOptionsKeywords) { keyword ->
+            settingsRepository.removeKeyword(settingsRepository::moreOptionsKeywords, keyword)
+            renderMoreOptionsKeywords()
+        }
+    }
+
+    private fun renderBlockOptionKeywords() {
+        renderList(binding.blockOptionKeywordsContainer, settingsRepository.blockOptionKeywords) { keyword ->
+            settingsRepository.removeKeyword(settingsRepository::blockOptionKeywords, keyword)
+            renderBlockOptionKeywords()
+        }
+    }
+
+    private fun renderBlockConfirmKeywords() {
+        renderList(binding.blockConfirmKeywordsContainer, settingsRepository.blockConfirmKeywords) { keyword ->
+            settingsRepository.removeKeyword(settingsRepository::blockConfirmKeywords, keyword)
+            renderBlockConfirmKeywords()
+        }
+    }
+
+    private fun renderDownloadOptionKeywords() {
+        renderList(binding.downloadOptionKeywordsContainer, settingsRepository.downloadOptionKeywords) { keyword ->
+            settingsRepository.removeKeyword(settingsRepository::downloadOptionKeywords, keyword)
+            renderDownloadOptionKeywords()
         }
     }
 
@@ -158,5 +296,6 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val STATS_REFRESH_INTERVAL_MILLIS = 3_000L
+        private const val REQUEST_STORAGE_PERMISSION = 100
     }
 }

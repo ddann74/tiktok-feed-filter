@@ -16,6 +16,7 @@ class StatsRepository(context: Context) {
 
     val adsSkipped: Int get() = prefs.getInt(KEY_ADS_SKIPPED, 0)
     val creatorsSkipped: Int get() = prefs.getInt(KEY_CREATORS_SKIPPED, 0)
+    val audioExtractionsCompleted: Int get() = prefs.getInt(KEY_AUDIO_EXTRACTIONS, 0)
 
     fun recentLog(): List<String> {
         val raw = prefs.getString(KEY_LOG, null) ?: return emptyList()
@@ -25,15 +26,28 @@ class StatsRepository(context: Context) {
     fun recordSkip(decision: SkipDecision) {
         val counterKey = if (decision.reason == SkipReason.AD) KEY_ADS_SKIPPED else KEY_CREATORS_SKIPPED
         val newCount = prefs.getInt(counterKey, 0) + 1
-        val entry = timeFormat.format(System.currentTimeMillis()) + " - " + when (decision.reason) {
+        val entry = when (decision.reason) {
             SkipReason.AD -> "Ad skipped (matched \"${decision.detail}\")"
             SkipReason.BLOCKED_CREATOR -> "Blocked creator skipped (${decision.detail})"
         }
+        prefs.edit().putInt(counterKey, newCount).apply()
+        appendLogEntry(entry)
+    }
+
+    /** Free-form log entries for everything that isn't a filter skip - block/download
+      * automation progress and outcomes, mainly. Doesn't touch any counter on its own. */
+    fun recordEvent(message: String) {
+        appendLogEntry(message)
+    }
+
+    fun recordAudioExtracted() {
+        prefs.edit().putInt(KEY_AUDIO_EXTRACTIONS, audioExtractionsCompleted + 1).apply()
+    }
+
+    private fun appendLogEntry(message: String) {
+        val entry = timeFormat.format(System.currentTimeMillis()) + " - " + message
         val updatedLog = (listOf(entry) + recentLog()).take(MAX_LOG_ENTRIES)
-        prefs.edit()
-            .putInt(counterKey, newCount)
-            .putString(KEY_LOG, updatedLog.joinToString("\n"))
-            .apply()
+        prefs.edit().putString(KEY_LOG, updatedLog.joinToString("\n")).apply()
     }
 
     fun clear() {
@@ -44,6 +58,7 @@ class StatsRepository(context: Context) {
         private const val PREFS_NAME = "tiktok_filter_stats"
         private const val KEY_ADS_SKIPPED = "ads_skipped"
         private const val KEY_CREATORS_SKIPPED = "creators_skipped"
+        private const val KEY_AUDIO_EXTRACTIONS = "audio_extractions_completed"
         private const val KEY_LOG = "recent_log"
         private const val MAX_LOG_ENTRIES = 50
     }

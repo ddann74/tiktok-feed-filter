@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <Button
+        android:id="@+id/overlayBlockButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:minWidth="0dp"
+        android:minHeight="0dp"
+        android:text="Block"
+        android:textSize="11sp"
+        android:textAllCaps="false"
+        android:textColor="#ffffff"
+        android:backgroundTint="#ff1744"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp"
+        android:layout_marginBottom="6dp"
+        android:elevation="8dp" />
+
+    <Button
+        android:id="@+id/overlayDownloadButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:minWidth="0dp"
+        android:minHeight="0dp"
+        android:text="Download"
+        android:textSize="11sp"
+        android:textAllCaps="false"
+        android:textColor="#ffffff"
+        android:backgroundTint="#2979ff"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp"
+        android:elevation="8dp" />
+
+</LinearLayout>
