@@ -30,6 +30,12 @@ class TikTokFilterService : AccessibilityService() {
     private lateinit var actionCoordinator: TikTokActionCoordinator
     private lateinit var overlayController: OverlayController
     private var lastSkipMillis: Long = 0L
+    // Identifies whichever video the last skip acted on (see performSkipGesture's call
+    // site) - guards against skipping the same video more than once if TikTok's own
+    // transition to the next video takes longer than COOLDOWN_MILLIS, which the time-only
+    // cooldown alone can't detect and which compounds badly for a filter (Subject Filter)
+    // that can legitimately skip many consecutive videos in a row.
+    private var lastSkippedVideoIdentity: String? = null
 
     private val mainHandler = Handler(Looper.getMainLooper())
     // A single reusable Runnable so scheduling it again (or cancelling it) always
@@ -119,9 +125,20 @@ class TikTokFilterService : AccessibilityService() {
             diagnosticLog.log("FILTER", "${decision.reason} matched \"${decision.detail}\" on a Live stream but live-skip is disabled - texts=$texts")
             return
         }
+        // A best-effort "which video is this" fingerprint - the creator's display name
+        // when one can be found, same identity FilterEngine.extractHandle already relies
+        // on elsewhere. If TikTok is still transitioning out the video we just skipped,
+        // this will still read as that same video rather than the next one, and skipping
+        // it again would be a duplicate, not a new decision.
+        val videoIdentity = FilterEngine.extractHandle(texts) ?: texts.firstOrNull()
+        if (videoIdentity != null && videoIdentity == lastSkippedVideoIdentity) {
+            diagnosticLog.log("FILTER", "duplicate skip suppressed for the same video (still transitioning?) - texts=$texts")
+            return
+        }
         diagnosticLog.log("FILTER", "${decision.reason} matched \"${decision.detail}\" - live=$isLive - texts=$texts")
 
         lastSkipMillis = now
+        lastSkippedVideoIdentity = videoIdentity
         statsRepository.recordSkip(decision)
         performSkipGesture()
     }

@@ -235,6 +235,30 @@ suddenly looks nearly empty after turning this on, check **Diagnostic Log** - ev
 skip includes which subjects it was looking for and the exact on-screen text it
 searched, which is the fastest way to see what wording you're actually missing.
 
+**If it feels like it's scrolling nonstop and you can't tell whether it's ever landing
+on a match:** that's very likely correct, mechanical behavior, not a hang - if your
+chosen subjects rarely appear in your actual feed, the app is doing exactly what "only
+show videos about my subjects" means: skipping every single non-matching video it
+sees, one after another, for as long as the feed keeps not matching. It isn't stuck; it
+just hasn't found a match yet. Broaden your keyword list (see above) rather than
+assuming something's broken.
+
+A related bug was fixed here too: the skip cooldown used to be purely time-based
+(900ms), which didn't check whether TikTok had actually finished transitioning to the
+next video - on a slower connection or device, that could mean the *same* video got
+skipped more than once before its own transition even finished, compounding into
+something that felt faster and more chaotic than one skip per video. The service now
+also tracks which video it last skipped and won't act on the same one twice.
+
+**To actually stop it right now, in order of speed:**
+1. **Leave TikTok** (press Home, switch apps) - the service only acts while TikTok is
+   the foreground app, so this stops everything instantly regardless of any setting.
+2. **Turn off "Only show videos about my subjects"** in this app - takes effect on the
+   very next screen TikTok renders, well under a second, no reinstall needed.
+3. **Turn off the Accessibility Service entirely** via **Open Accessibility Settings**
+   in this app - the same button used in Setup - if you want every automation in this
+   app off at once, not just Subject Filter.
+
 ## Diagnostic log
 
 The **Activity** log is deliberately curated for everyday use - short, friendly lines
