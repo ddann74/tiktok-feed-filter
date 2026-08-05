@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TikTok Feed Filter</string>
+    <string name="accessibility_service_description">Reads on-screen text while TikTok is open to detect ads and blocked creators, and swipes past them. Nothing is recorded or sent anywhere - matches stay on this device.</string>
+</resources>

@@ -1,0 +1,321 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true"
+    android:background="#1a1a1a">
+
+<LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="TikTok Feed Filter"
+        android:textSize="24sp"
+        android:textColor="#00c853"
+        android:textStyle="bold"
+        android:gravity="center"
+        android:layout_marginBottom="16dp" />
+
+    <TextView
+        android:id="@+id/statusText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Accessibility Service: checking..."
+        android:textColor="#ffffff"
+        android:textSize="14sp"
+        android:padding="12dp"
+        android:background="#2a2a2a"
+        android:layout_marginBottom="8dp" />
+
+    <Button
+        android:id="@+id/openAccessibilitySettingsButton"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:text="Open Accessibility Settings"
+        android:textColor="#ffffff"
+        android:textAllCaps="false"
+        android:backgroundTint="#2979ff"
+        android:layout_marginBottom="20dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Filters"
+        android:textSize="18sp"
+        android:textColor="#00c853"
+        android:textStyle="bold"
+        android:layout_marginBottom="8dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="#2a2a2a"
+        android:padding="10dp"
+        android:layout_marginBottom="4dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Skip ads"
+            android:textColor="#ffffff"
+            android:textSize="14sp" />
+
+        <Switch
+            android:id="@+id/adSkipSwitch"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="#2a2a2a"
+        android:padding="10dp"
+        android:layout_marginBottom="20dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Skip blocked creators"
+            android:textColor="#ffffff"
+            android:textSize="14sp" />
+
+        <Switch
+            android:id="@+id/blockedCreatorSkipSwitch"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Blocked Creators"
+        android:textSize="18sp"
+        android:textColor="#00c853"
+        android:textStyle="bold"
+        android:layout_marginBottom="8dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="8dp">
+
+        <EditText
+            android:id="@+id/blockedCreatorInput"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:hint="@handle"
+            android:textColor="#ffffff"
+            android:textColorHint="#888888"
+            android:background="#2a2a2a"
+            android:padding="8dp"
+            android:singleLine="true"
+            android:layout_marginEnd="8dp" />
+
+        <Button
+            android:id="@+id/addBlockedCreatorButton"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:text="Add"
+            android:textColor="#ffffff"
+            android:textAllCaps="false"
+            android:backgroundTint="#00c853" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/blockedCreatorsContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginBottom="20dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Ad Keywords"
+        android:textSize="18sp"
+        android:textColor="#00c853"
+        android:textStyle="bold"
+        android:layout_marginBottom="4dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Matched against any on-screen text, case-insensitive. If TikTok changes its ad label, add the new wording here - no app update needed."
+        android:textColor="#888888"
+        android:textSize="11sp"
+        android:layout_marginBottom="8dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="8dp">
+
+        <EditText
+            android:id="@+id/adKeywordInput"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:hint="Sponsored"
+            android:textColor="#ffffff"
+            android:textColorHint="#888888"
+            android:background="#2a2a2a"
+            android:padding="8dp"
+            android:singleLine="true"
+            android:layout_marginEnd="8dp" />
+
+        <Button
+            android:id="@+id/addAdKeywordButton"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:text="Add"
+            android:textColor="#ffffff"
+            android:textAllCaps="false"
+            android:backgroundTint="#00c853" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/adKeywordsContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginBottom="20dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Target App Packages"
+        android:textSize="18sp"
+        android:textColor="#00c853"
+        android:textStyle="bold"
+        android:layout_marginBottom="4dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Which installed app(s) this is allowed to read/act on. Defaults cover standard and regional TikTok - add TikTok Lite's package here if you use that instead."
+        android:textColor="#888888"
+        android:textSize="11sp"
+        android:layout_marginBottom="8dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="8dp">
+
+        <EditText
+            android:id="@+id/targetPackageInput"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:hint="com.zhiliaoapp.musically"
+            android:textColor="#ffffff"
+            android:textColorHint="#888888"
+            android:background="#2a2a2a"
+            android:padding="8dp"
+            android:singleLine="true"
+            android:layout_marginEnd="8dp" />
+
+        <Button
+            android:id="@+id/addTargetPackageButton"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:text="Add"
+            android:textColor="#ffffff"
+            android:textAllCaps="false"
+            android:backgroundTint="#00c853" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/targetPackagesContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginBottom="20dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Activity"
+        android:textSize="18sp"
+        android:textColor="#00c853"
+        android:textStyle="bold"
+        android:layout_marginBottom="8dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="8dp">
+
+        <TextView
+            android:id="@+id/adsSkippedText"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Ads skipped: 0"
+            android:textColor="#ffffff"
+            android:textSize="14sp"
+            android:padding="10dp"
+            android:background="#2a2a2a"
+            android:layout_marginEnd="4dp" />
+
+        <TextView
+            android:id="@+id/creatorsSkippedText"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Creators skipped: 0"
+            android:textColor="#ffffff"
+            android:textSize="14sp"
+            android:padding="10dp"
+            android:background="#2a2a2a"
+            android:layout_marginStart="4dp" />
+
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/activityLogText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="No activity yet"
+        android:textColor="#cccccc"
+        android:textSize="11sp"
+        android:fontFamily="monospace"
+        android:lineSpacingExtra="2dp"
+        android:padding="8dp"
+        android:background="#2a2a2a"
+        android:layout_marginBottom="8dp" />
+
+    <Button
+        android:id="@+id/clearStatsButton"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:text="Clear Activity &amp; Counters"
+        android:textColor="#ffffff"
+        android:textAllCaps="false"
+        android:textSize="13sp"
+        android:backgroundTint="#ff1744" />
+
+</LinearLayout>
+</ScrollView>

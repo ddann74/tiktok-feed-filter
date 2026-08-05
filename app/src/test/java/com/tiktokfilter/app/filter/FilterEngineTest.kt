@@ -1,0 +1,146 @@
+package com.tiktokfilter.app.filter
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Test
+
+class FilterEngineTest {
+
+    private val defaultAdKeywords = listOf("Sponsored")
+
+    @Test
+    fun `no match returns null`() {
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf("@someone", "a normal caption", "128 comments"),
+            adKeywordsEnabled = true,
+            adKeywords = defaultAdKeywords,
+            blockedCreatorsEnabled = true,
+            blockedCreators = setOf("someoneelse")
+        )
+        assertNull(decision)
+    }
+
+    @Test
+    fun `ad keyword match fires AD`() {
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf("@brand_official", "Check out our new product!", "Sponsored"),
+            adKeywordsEnabled = true,
+            adKeywords = defaultAdKeywords,
+            blockedCreatorsEnabled = true,
+            blockedCreators = emptySet()
+        )
+        assertEquals(SkipReason.AD, decision?.reason)
+        assertEquals("Sponsored", decision?.detail)
+    }
+
+    @Test
+    fun `ad keyword match is case-insensitive`() {
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf("@brand", "sponsored content below"),
+            adKeywordsEnabled = true,
+            adKeywords = listOf("Sponsored"),
+            blockedCreatorsEnabled = false,
+            blockedCreators = emptySet()
+        )
+        assertEquals(SkipReason.AD, decision?.reason)
+    }
+
+    @Test
+    fun `blocked creator handle fires BLOCKED_CREATOR`() {
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf("@annoying_account", "some caption text", "42 comments"),
+            adKeywordsEnabled = true,
+            adKeywords = defaultAdKeywords,
+            blockedCreatorsEnabled = true,
+            blockedCreators = setOf("annoying_account")
+        )
+        assertEquals(SkipReason.BLOCKED_CREATOR, decision?.reason)
+        assertEquals("@annoying_account", decision?.detail)
+    }
+
+    @Test
+    fun `blocked creator match is case-insensitive and ignores leading at-sign`() {
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf("@AnnoyingAccount"),
+            adKeywordsEnabled = false,
+            adKeywords = emptyList(),
+            blockedCreatorsEnabled = true,
+            blockedCreators = setOf("annoyingaccount")
+        )
+        assertEquals(SkipReason.BLOCKED_CREATOR, decision?.reason)
+    }
+
+    @Test
+    fun `blocked creator takes priority over an ad keyword match on the same screen`() {
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf("@annoying_account", "Sponsored"),
+            adKeywordsEnabled = true,
+            adKeywords = defaultAdKeywords,
+            blockedCreatorsEnabled = true,
+            blockedCreators = setOf("annoying_account")
+        )
+        assertEquals(SkipReason.BLOCKED_CREATOR, decision?.reason)
+    }
+
+    @Test
+    fun `disabled ad skipping never fires AD even on a match`() {
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf("@brand", "Sponsored"),
+            adKeywordsEnabled = false,
+            adKeywords = defaultAdKeywords,
+            blockedCreatorsEnabled = false,
+            blockedCreators = emptySet()
+        )
+        assertNull(decision)
+    }
+
+    @Test
+    fun `disabled blocked-creator skipping never fires BLOCKED_CREATOR even on a match`() {
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf("@annoying_account"),
+            adKeywordsEnabled = false,
+            adKeywords = emptyList(),
+            blockedCreatorsEnabled = false,
+            blockedCreators = setOf("annoying_account")
+        )
+        assertNull(decision)
+    }
+
+    @Test
+    fun `a username-like word embedded in a longer sentence does not count as a handle`() {
+        // "@brand" appears, but only as part of a longer caption string, not as its own
+        // node reading exactly "@brand" - extractHandle should not treat this as the
+        // video's creator handle.
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf("thanks for the shoutout @brand appreciate you!"),
+            adKeywordsEnabled = false,
+            adKeywords = emptyList(),
+            blockedCreatorsEnabled = true,
+            blockedCreators = setOf("brand")
+        )
+        assertNull(decision)
+    }
+
+    @Test
+    fun `blank ad keywords in the list are ignored rather than matching everything`() {
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf("@brand", "any caption at all"),
+            adKeywordsEnabled = true,
+            adKeywords = listOf("", "   "),
+            blockedCreatorsEnabled = false,
+            blockedCreators = emptySet()
+        )
+        assertNull(decision)
+    }
+
+    @Test
+    fun `extractHandle finds the first standalone at-handle node`() {
+        val handle = FilterEngine.extractHandle(listOf("128 comments", "@real_handle", "a caption"))
+        assertEquals("@real_handle", handle)
+    }
+
+    @Test
+    fun `normalizeHandle strips leading at-sign and lowercases`() {
+        assertEquals("someuser", FilterEngine.normalizeHandle("@SomeUser"))
+    }
+}
