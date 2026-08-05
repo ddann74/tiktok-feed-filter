@@ -131,6 +131,16 @@ These are meaningfully more powerful - and more fragile - than the read-only ad/
 skipping above, because they tap real buttons inside TikTok's own menus rather than
 just reading text.
 
+**Auto-skip (ad, blocked creator, Subject Filter) is suspended for as long as a Block
+or Download tap sequence is in progress**, and resumes automatically the moment it
+finishes or times out. This exists because the two were never safe to run at the same
+time: a multi-tap automation depends on the same video staying on screen across several
+updates while it works through its steps - if auto-skip swiped it away mid-sequence,
+the automation could fail outright, or worse, end up tapping "Save"/"Block" on whatever
+video auto-skip had since moved to rather than the one it actually started on. If Block
+or Download seemed to act on the wrong video, or Subject Filter's constant skipping
+seemed to interfere with a download, this is the fix for exactly that.
+
 **Really blocking a creator** taps: the video's "more options" menu → the **Block**
 option → the confirmation dialog's **Block** button. This is a genuine, permanent,
 account-level TikTok block - it still applies even if this app is later uninstalled -

@@ -88,6 +88,20 @@ class TikTokFilterService : AccessibilityService() {
         // have their own timeout (see TikTokActionCoordinator).
         actionCoordinator.onScreenUpdated(root)
 
+        // Auto-skip (ad/blocked-creator/subject) must never fire while a Block/Download
+        // tap sequence is still working on the current video - swiping away mid-sequence
+        // would pull the video out from under it, which can make a multi-tap automation
+        // fail outright or, worse, land its next tap on whatever video auto-skip moved to
+        // instead. onScreenUpdated above may have just completed the pending sequence on
+        // this very event, in which case hasPendingAction is already false again and
+        // auto-skip resumes normally starting next event - this only pauses it mid-flight.
+        if (actionCoordinator.hasPendingAction) {
+            @Suppress("DEPRECATION")
+            root.recycle()
+            diagnosticLog.log("FILTER", "auto-skip paused - Block/Download automation in progress")
+            return
+        }
+
         // Right after a skip, TikTok is still loading/animating in the next video - reading
         // the screen during that window would evaluate a half-rendered video (or the one we
         // just skipped past) and could trigger a second, unwanted skip.

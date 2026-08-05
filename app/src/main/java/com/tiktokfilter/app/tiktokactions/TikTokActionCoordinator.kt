@@ -46,6 +46,16 @@ class TikTokActionCoordinator(
     private var pendingDownloadMode: DownloadMode = DownloadMode.AUDIO_ONLY
     private var downloadTriggeredAtEpochSeconds: Long = 0L
 
+    /** True while a Block or Download tap sequence is still in progress - the caller
+      * (TikTokFilterService) uses this to suspend the unrelated auto-skip checks (ad,
+      * blocked creator, subject filter) for as long as one is pending. Those two things
+      * were never meant to run concurrently on the same video: auto-skip swiping away
+      * mid-sequence would pull the video out from under a multi-tap automation that's
+      * still working on it, corrupting it - the two-stage Download sequence could end up
+      * tapping "Save" on whatever video auto-skip had since moved to, not the one it
+      * actually started on. */
+    val hasPendingAction: Boolean get() = pendingBlock != null || pendingDownload != null
+
     private val mainHandler = Handler(Looper.getMainLooper())
     private val backgroundExecutor = Executors.newSingleThreadExecutor()
 
