@@ -58,7 +58,7 @@ class MainActivity : AppCompatActivity() {
         binding.overlaySwitch.isChecked = settingsRepository.isOverlayEnabled
         binding.diagnosticLoggingSwitch.isChecked = settingsRepository.isDiagnosticLoggingEnabled
         binding.liveStreamSkipSwitch.isChecked = settingsRepository.isLiveStreamSkipEnabled
-        binding.subjectFilterSwitch.isChecked = settingsRepository.isSubjectFilterEnabled
+        binding.subjectFilterSwitch.isChecked = settingsRepository.isSubjectBoostEnabled
         renderAllLists()
         refreshStats()
     }
@@ -108,7 +108,7 @@ class MainActivity : AppCompatActivity() {
             settingsRepository.isLiveStreamSkipEnabled = isChecked
         }
         binding.subjectFilterSwitch.setOnCheckedChangeListener { _, isChecked ->
-            settingsRepository.isSubjectFilterEnabled = isChecked
+            settingsRepository.isSubjectBoostEnabled = isChecked
         }
 
         binding.addBlockedCreatorButton.setOnClickListener {
@@ -134,6 +134,13 @@ class MainActivity : AppCompatActivity() {
             settingsRepository.addKeyword(settingsRepository::subjectKeywords, keyword)
             binding.subjectKeywordInput.setText("")
             renderSubjectKeywords()
+        }
+        binding.addLikeOptionKeywordButton.setOnClickListener {
+            val keyword = binding.likeOptionKeywordInput.text.toString().trim()
+            if (keyword.isEmpty()) return@setOnClickListener
+            settingsRepository.addKeyword(settingsRepository::likeOptionKeywords, keyword)
+            binding.likeOptionKeywordInput.setText("")
+            renderLikeOptionKeywords()
         }
         binding.addTargetPackageButton.setOnClickListener {
             val pkg = binding.targetPackageInput.text.toString().trim()
@@ -245,7 +252,7 @@ class MainActivity : AppCompatActivity() {
         binding.adsSkippedText.text = "Ads skipped: ${statsRepository.adsSkipped}"
         binding.creatorsSkippedText.text = "Creators skipped: ${statsRepository.creatorsSkipped}"
         binding.audioExtractedText.text = "Audio saved: ${statsRepository.audioExtractionsCompleted}"
-        binding.offSubjectSkippedText.text = "Off-subject skipped: ${statsRepository.offSubjectSkipped}"
+        binding.subjectBoostLikesText.text = "Subject Boost auto-likes: ${statsRepository.subjectBoostLikes}"
         val log = statsRepository.recentLog()
         binding.activityLogText.text = if (log.isEmpty()) "No activity yet" else log.joinToString("\n")
 
@@ -263,6 +270,7 @@ class MainActivity : AppCompatActivity() {
         renderBlockConfirmKeywords()
         renderDownloadOptionKeywords()
         renderLiveMoreOptionsKeywords()
+        renderLikeOptionKeywords()
     }
 
     /** Not built on the shared renderList helper (unlike every other list here) because
@@ -350,6 +358,13 @@ class MainActivity : AppCompatActivity() {
         renderList(binding.liveMoreOptionsKeywordsContainer, settingsRepository.liveMoreOptionsKeywords) { keyword ->
             settingsRepository.removeKeyword(settingsRepository::liveMoreOptionsKeywords, keyword)
             renderLiveMoreOptionsKeywords()
+        }
+    }
+
+    private fun renderLikeOptionKeywords() {
+        renderList(binding.likeOptionKeywordsContainer, settingsRepository.likeOptionKeywords) { keyword ->
+            settingsRepository.removeKeyword(settingsRepository::likeOptionKeywords, keyword)
+            renderLikeOptionKeywords()
         }
     }
 

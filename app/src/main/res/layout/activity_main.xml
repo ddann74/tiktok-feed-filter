@@ -243,7 +243,7 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Subject Filter"
+        android:text="Subject Boost"
         android:textSize="18sp"
         android:textColor="#00c853"
         android:textStyle="bold"
@@ -252,7 +252,7 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="The opposite of Ad Keywords: when on, ANY video whose caption/hashtags don't mention at least one subject below gets skipped, not just ones that match something specific. Off by default, and stays off in practice until you add at least one subject - turning the toggle on first with an empty list won't skip everything."
+        android:text="Never skips or blocks anything - browsing stays completely normal. When on, any video whose caption/hashtags mention a subject below gets auto-liked, as a positive signal toward TikTok's own recommendation algorithm showing you more of it. Auto-likes are visible in your account's Liked list and can notify the creator - HONEST LIMIT: this can only nudge a known signal, not guarantee or verify any actual shift in what gets recommended."
         android:textColor="#888888"
         android:textSize="11sp"
         android:layout_marginBottom="8dp" />
@@ -270,7 +270,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Only show videos about my subjects"
+            android:text="Auto-like videos about my subjects"
             android:textColor="#ffffff"
             android:textSize="14sp" />
 
@@ -313,6 +313,52 @@
 
     <LinearLayout
         android:id="@+id/subjectKeywordsContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginBottom="12dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="“Like” Button Labels"
+        android:textSize="14sp"
+        android:textColor="#cccccc"
+        android:textStyle="bold"
+        android:layout_marginBottom="4dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="8dp">
+
+        <EditText
+            android:id="@+id/likeOptionKeywordInput"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:hint="Like"
+            android:textColor="#ffffff"
+            android:textColorHint="#888888"
+            android:background="#2a2a2a"
+            android:padding="8dp"
+            android:singleLine="true"
+            android:layout_marginEnd="8dp" />
+
+        <Button
+            android:id="@+id/addLikeOptionKeywordButton"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:text="Add"
+            android:textColor="#ffffff"
+            android:textAllCaps="false"
+            android:backgroundTint="#00c853" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/likeOptionKeywordsContainer"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
@@ -763,10 +809,10 @@
     </LinearLayout>
 
     <TextView
-        android:id="@+id/offSubjectSkippedText"
+        android:id="@+id/subjectBoostLikesText"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Off-subject skipped: 0"
+        android:text="Subject Boost auto-likes: 0"
         android:textColor="#ffffff"
         android:textSize="12.5sp"
         android:padding="10dp"

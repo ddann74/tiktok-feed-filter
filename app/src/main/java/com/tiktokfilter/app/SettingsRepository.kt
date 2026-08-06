@@ -57,25 +57,38 @@ class SettingsRepository(context: Context) {
         get() = prefs.getBoolean(KEY_LIVE_STREAM_SKIP_ENABLED, true)
         set(value) = prefs.edit().putBoolean(KEY_LIVE_STREAM_SKIP_ENABLED, value).apply()
 
-    /** Off by default, unlike ad/creator skipping - this is an *allow-list*, not a
-      * block-list: when on, every video whose caption/hashtags don't mention at least
-      * one configured [subjectKeywords] entry gets skipped, not just ones that match
-      * something specific. That's a much bigger behavior change to turn on by default,
-      * and (see FilterEngine.evaluate) it stays inert even if somehow enabled before any
-      * subject is actually configured, rather than skipping every video. */
-    var isSubjectFilterEnabled: Boolean
-        get() = prefs.getBoolean(KEY_SUBJECT_FILTER_ENABLED, false)
-        set(value) = prefs.edit().putBoolean(KEY_SUBJECT_FILTER_ENABLED, value).apply()
+    /** Off by default. Unlike the old Subject Filter this replaced, this never skips or
+      * blocks anything - browsing stays completely normal. Instead, whenever the current
+      * video's own on-screen text mentions a configured [subjectKeywords] entry, the app
+      * auto-taps TikTok's own Like button on it (see [likeOptionKeywords] /
+      * TikTokActionCoordinator.attemptLikeCurrentVideo) as a positive engagement signal,
+      * on the theory that TikTok's own recommendation algorithm weighs likes/watch-time
+      * and will drift toward showing more of what you consistently engage with. HONEST
+      * LIMIT: this can only nudge documented signals, not verify or guarantee any actual
+      * shift in what gets recommended - that's entirely up to TikTok's own black-box
+      * algorithm. Stays inert even if enabled before any subject is configured, same as
+      * before. */
+    var isSubjectBoostEnabled: Boolean
+        get() = prefs.getBoolean(KEY_SUBJECT_BOOST_ENABLED, false)
+        set(value) = prefs.edit().putBoolean(KEY_SUBJECT_BOOST_ENABLED, value).apply()
 
-    /** Subjects you want to keep seeing, e.g. "history", "science" - matched the same
-      * way as Ad Keywords (case-insensitive substring against the current video's own
-      * caption/hashtags/on-screen text), just inverted: a video that matches *none* of
-      * these gets skipped instead of one that matches something specific. Empty by
-      * default - see [isSubjectFilterEnabled]'s doc for why an empty list doesn't skip
-      * everything. */
+    /** Subjects you want the algorithm to see more of, e.g. "history", "science" -
+      * matched the same way as Ad Keywords (case-insensitive substring against the
+      * current video's own caption/hashtags/on-screen text). A match triggers an
+      * auto-like (see [isSubjectBoostEnabled]'s doc) rather than allowing/skipping
+      * anything - this list no longer filters what you see, only what gets liked. */
     var subjectKeywords: List<String>
         get() = parseList(prefs.getString(KEY_SUBJECT_KEYWORDS, null) ?: "")
         set(value) = prefs.edit().putString(KEY_SUBJECT_KEYWORDS, joinList(value)).apply()
+
+    /** Best-effort candidate label(s) for TikTok's own Like button, searched the same
+      * way as [moreOptionsKeywords] etc. (case-insensitive substring against text or
+      * contentDescription) - not verified against a live device, editable in Setup if
+      * Subject Boost's auto-like ever stops finding it. A single tap, unlike the Block/
+      * Download sequences, so this doesn't need its own multi-stage ActionSequence. */
+    var likeOptionKeywords: List<String>
+        get() = parseList(prefs.getString(KEY_LIKE_OPTION_KEYWORDS, null) ?: DEFAULT_LIKE_OPTION_KEYWORDS.joinToString(","))
+        set(value) = prefs.edit().putString(KEY_LIKE_OPTION_KEYWORDS, joinList(value)).apply()
 
     /** Which app package(s) the service is allowed to read/act on - a list (not one value)
       * since TikTok ships under different package names by region/variant (see README). */
@@ -201,8 +214,9 @@ class SettingsRepository(context: Context) {
         private const val KEY_OVERLAY_ENABLED = "overlay_enabled"
         private const val KEY_DIAGNOSTIC_LOGGING_ENABLED = "diagnostic_logging_enabled"
         private const val KEY_LIVE_STREAM_SKIP_ENABLED = "live_stream_skip_enabled"
-        private const val KEY_SUBJECT_FILTER_ENABLED = "subject_filter_enabled"
+        private const val KEY_SUBJECT_BOOST_ENABLED = "subject_boost_enabled"
         private const val KEY_SUBJECT_KEYWORDS = "subject_keywords"
+        private const val KEY_LIKE_OPTION_KEYWORDS = "like_option_keywords"
         private const val KEY_TARGET_PACKAGES = "target_packages"
         private const val KEY_AD_KEYWORDS = "ad_keywords"
         private const val KEY_BLOCKED_CREATORS = "blocked_creators"
@@ -228,6 +242,10 @@ class SettingsRepository(context: Context) {
         val DEFAULT_BLOCK_OPTION_KEYWORDS = listOf("Block")
         val DEFAULT_BLOCK_CONFIRM_KEYWORDS = listOf("Block")
         val DEFAULT_DOWNLOAD_OPTION_KEYWORDS = listOf("Save video", "Save", "Download")
+        // TikTok's like/heart button contentDescription is commonly just "Like" (unliked
+        // state) - not verified against a live device, editable in Setup if Subject
+        // Boost's auto-like ever stops finding it.
+        val DEFAULT_LIKE_OPTION_KEYWORDS = listOf("Like")
 
         // The badge TikTok renders on every Live room, and best-effort candidates for
         // where a Live room's own menu is opened from - neither confirmed against a live

@@ -32,10 +32,14 @@ class TikTokFilterService : AccessibilityService() {
     private var lastSkipMillis: Long = 0L
     // Identifies whichever video the last skip acted on (see performSkipGesture's call
     // site) - guards against skipping the same video more than once if TikTok's own
-    // transition to the next video takes longer than COOLDOWN_MILLIS, which the time-only
-    // cooldown alone can't detect and which compounds badly for a filter (Subject Filter)
-    // that can legitimately skip many consecutive videos in a row.
+    // transition to the next video takes longer than COOLDOWN_MILLIS, which the
+    // time-only cooldown alone can't detect.
     private var lastSkippedVideoIdentity: String? = null
+    // Same dedup shape as lastSkippedVideoIdentity, but for Subject Boost's auto-like -
+    // without it, a video that lingers on screen across multiple accessibility events
+    // (normal - nothing here forces it to move on) would get an attempted like on every
+    // single one of those events, not just once.
+    private var lastAutoLikedVideoIdentity: String? = null
 
     private val mainHandler = Handler(Looper.getMainLooper())
     // A single reusable Runnable so scheduling it again (or cancelling it) always
@@ -88,7 +92,7 @@ class TikTokFilterService : AccessibilityService() {
         // have their own timeout (see TikTokActionCoordinator).
         actionCoordinator.onScreenUpdated(root)
 
-        // Auto-skip (ad/blocked-creator/subject) must never fire while a Block/Download
+        // Auto-skip (ad/blocked-creator) must never fire while a Block/Download
         // tap sequence is still working on the current video - swiping away mid-sequence
         // would pull the video out from under it, which can make a multi-tap automation
         // fail outright or, worse, land its next tap on whatever video auto-skip moved to
@@ -114,8 +118,6 @@ class TikTokFilterService : AccessibilityService() {
 
         val texts = mutableListOf<String>()
         collectText(root, texts)
-        @Suppress("DEPRECATION")
-        root.recycle()
 
         val isLive = FilterEngine.isLiveStream(texts, settingsRepository.liveIndicatorKeywords)
 
@@ -124,14 +126,23 @@ class TikTokFilterService : AccessibilityService() {
             adKeywordsEnabled = settingsRepository.isAdSkipEnabled,
             adKeywords = settingsRepository.adKeywords,
             blockedCreatorsEnabled = settingsRepository.isBlockedCreatorSkipEnabled,
-            blockedCreators = settingsRepository.blockedCreators.toSet(),
-            subjectFilterEnabled = settingsRepository.isSubjectFilterEnabled,
-            subjectKeywords = settingsRepository.subjectKeywords
+            blockedCreators = settingsRepository.blockedCreators.toSet()
         )
         if (decision == null) {
             diagnosticLog.log("FILTER", "no match - live=$isLive - texts=$texts")
+            // Subject Boost never skips - it only ever adds a positive signal (auto-like)
+            // on top of otherwise-normal browsing, so it's only relevant once we already
+            // know this video isn't being skipped for an unrelated reason (ad/blocked
+            // creator) above. root is still alive here (not yet recycled) since the
+            // auto-like tap needs it, unlike the skip path below which never touches root
+            // again once it's decided to skip.
+            attemptSubjectBoost(root, texts, isLive)
+            @Suppress("DEPRECATION")
+            root.recycle()
             return
         }
+        @Suppress("DEPRECATION")
+        root.recycle()
         // A Live room is a different kind of screen than a normal video - swiping away
         // from one is gated by its own toggle (default on) rather than assuming the
         // same behavior as skipping a video is always wanted here too.
@@ -155,6 +166,23 @@ class TikTokFilterService : AccessibilityService() {
         lastSkippedVideoIdentity = videoIdentity
         statsRepository.recordSkip(decision)
         performSkipGesture()
+    }
+
+    /** Subject Boost: if enabled and the current video's on-screen text matches a
+      * configured subject, auto-likes it as a positive engagement signal - see
+      * SettingsRepository.isSubjectBoostEnabled's doc for why this replaced the old
+      * force-skip Subject Filter. Skipped entirely on a Live room: its layout differs
+      * enough from a normal video that the same Like-button keyword search is more
+      * likely to mis-tap something else, and Live rooms don't have the same caption/
+      * hashtag text a subject match would normally be based on anyway. */
+    private fun attemptSubjectBoost(root: AccessibilityNodeInfo, texts: List<String>, isLive: Boolean) {
+        if (isLive || !settingsRepository.isSubjectBoostEnabled) return
+        if (!FilterEngine.matchesSubject(texts, settingsRepository.subjectKeywords)) return
+        val videoIdentity = FilterEngine.extractHandle(texts) ?: texts.firstOrNull()
+        if (videoIdentity != null && videoIdentity == lastAutoLikedVideoIdentity) return
+        lastAutoLikedVideoIdentity = videoIdentity
+        diagnosticLog.log("SUBJECT_BOOST", "subject match - attempting auto-like - texts=$texts")
+        actionCoordinator.attemptLikeCurrentVideo(root)
     }
 
     override fun onInterrupt() {

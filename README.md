@@ -31,9 +31,9 @@ you would.
   for actually troubleshooting or tuning a keyword list (see its own section below).
 - **Live streams** are recognized separately from normal videos (`FilterEngine.isLiveStream`),
   since TikTok renders a Live room's screen differently - see its own section below.
-- An optional **Subject Filter** inverts the ad-keyword idea: instead of skipping videos
-  that match something, it skips every video that *doesn't* match one of your configured
-  subjects - see its own section below.
+- An optional **Subject Boost** never skips anything - instead it auto-likes any video
+  that matches one of your configured subjects, as a positive signal toward TikTok's own
+  recommendation algorithm - see its own section below.
 
 ## This is inherently heuristic - read this before relying on it
 
@@ -131,15 +131,15 @@ These are meaningfully more powerful - and more fragile - than the read-only ad/
 skipping above, because they tap real buttons inside TikTok's own menus rather than
 just reading text.
 
-**Auto-skip (ad, blocked creator, Subject Filter) is suspended for as long as a Block
-or Download tap sequence is in progress**, and resumes automatically the moment it
-finishes or times out. This exists because the two were never safe to run at the same
-time: a multi-tap automation depends on the same video staying on screen across several
-updates while it works through its steps - if auto-skip swiped it away mid-sequence,
-the automation could fail outright, or worse, end up tapping "Save"/"Block" on whatever
-video auto-skip had since moved to rather than the one it actually started on. If Block
-or Download seemed to act on the wrong video, or Subject Filter's constant skipping
-seemed to interfere with a download, this is the fix for exactly that.
+**Auto-skip (ad, blocked creator) and Subject Boost's auto-like are both suspended for
+as long as a Block or Download tap sequence is in progress**, and resume automatically
+the moment it finishes or times out. This exists because they were never safe to run at
+the same time: a multi-tap automation depends on the same video staying on screen across
+several updates while it works through its steps - if auto-skip swiped it away
+mid-sequence, or Subject Boost tapped Like at the wrong moment, the automation could fail
+outright, or worse, end up tapping "Save"/"Block" on whatever video the feed had since
+moved to rather than the one it actually started on. If Block or Download seemed to act
+on the wrong video, this is the fix for exactly that.
 
 **Really blocking a creator** taps: the video's "more options" menu → the **Block**
 option → the confirmation dialog's **Block** button. This is a genuine, permanent,
@@ -228,59 +228,59 @@ real TikTok install - the Live room menu structure in particular is a best-effor
 guess. If **Block** doesn't work on a Live but does on normal videos, that's the first
 place to check with the **Diagnostic Log**.
 
-## Subject filter
+## Subject Boost
 
-Everything above skips videos that match something specific (an ad, a blocked
-creator). **Subject Filter** is the opposite: an *allow-list*, not a block-list. Add
-subjects you actually want - "history", "science", whatever - and turn on **Only show
-videos about my subjects**, and every video whose caption/hashtags don't mention at
-least one of them gets skipped, not just ones that match something in particular.
+Originally this was a **Subject Filter** - an allow-list that force-skipped any video
+that didn't mention one of your subjects. That caused a real problem: with a narrow
+subject list, the app would swipe through video after video with no visible stopping
+point, indistinguishable from a hang even though it was working correctly (skipping
+every non-matching video, one after another, until it found a match).
+
+**Subject Boost replaced it entirely, and works completely differently: it never skips
+or blocks anything.** Browsing stays exactly as normal - every video plays through
+however you'd normally interact with it. Instead, add subjects you want to see more of
+- "history", "science", whatever - and turn on **Auto-like videos about my subjects**:
+whenever the current video's caption/hashtags mention one of them, the app taps
+TikTok's own **Like** button on it automatically, as a positive engagement signal.
+
+**The idea**: TikTok's own recommendation algorithm is documented to weigh signals like
+likes and watch time. Consistently auto-liking matches, without touching anything else,
+is a way to nudge that algorithm toward your chosen subjects yourself, rather than
+either doing nothing or blocking things and hoping the algorithm reacts to what's
+missing.
+
+**HONEST LIMIT**: this can only nudge a known signal - it cannot verify or guarantee any
+actual shift in what TikTok recommends afterward. That's entirely up to TikTok's own
+black-box algorithm, and the only way to judge whether it's working is to actually use
+it for a while and see whether your feed changes.
+
+**This is a visible action, unlike everything else in this app.** Skipping is invisible
+(TikTok has no way to know a swipe was automated), and local blocking never touches your
+real account. Auto-liking does: liked videos show up in your account's own Liked list,
+and can notify the creator, exactly as if you'd tapped Like yourself.
 
 It uses the exact same matching mechanics as Ad Keywords - case-insensitive substring
 match against the current video's own on-screen text, scoped the same way (a preloaded
 video further down the feed can't accidentally satisfy the match for the one actually
-on screen) - just inverted: no match means skip, instead of a match meaning skip.
+on screen). **Off by default, and safe to turn on before you've added anything**: with
+no subjects configured, it has nothing to check against and stays completely inert.
+It also never runs on a Live stream - a Live room's layout differs enough that the same
+Like-button search is more likely to mis-tap something else there.
 
-**Off by default, and safe to turn on before you've added anything**: with no subjects
-configured, the filter has nothing to check against and stays completely inert, rather
-than skipping every single video the moment the toggle is flipped. Add at least one
-subject before it actually starts filtering.
+Each video is only auto-liked once (tracked the same way auto-skip tracks which video
+it last acted on, so a video lingering across several screen updates doesn't get
+tapped repeatedly). If it isn't finding TikTok's Like button, check **“Like” Button
+Labels** in Setup and the **Diagnostic Log** (`SUBJECT_BOOST` entries) - same
+troubleshooting approach as every other keyword list in this app.
 
-An ad or a blocked creator is still skipped for *that* reason even if the video happens
-to also mention one of your subjects - those checks run first and return immediately,
-same priority order as before this existed.
-
-This inherits the same wording-mismatch risk as every other keyword list here, but the
-failure mode is more disruptive: a caption using different phrasing than you expect
-(`"#historytok"` instead of the word "history", for instance) means that video gets
-skipped as off-subject instead of just not being specially treated. If your feed
-suddenly looks nearly empty after turning this on, check **Diagnostic Log** - every
-skip includes which subjects it was looking for and the exact on-screen text it
-searched, which is the fastest way to see what wording you're actually missing.
-
-**If it feels like it's scrolling nonstop and you can't tell whether it's ever landing
-on a match:** that's very likely correct, mechanical behavior, not a hang - if your
-chosen subjects rarely appear in your actual feed, the app is doing exactly what "only
-show videos about my subjects" means: skipping every single non-matching video it
-sees, one after another, for as long as the feed keeps not matching. It isn't stuck; it
-just hasn't found a match yet. Broaden your keyword list (see above) rather than
-assuming something's broken.
-
-A related bug was fixed here too: the skip cooldown used to be purely time-based
-(900ms), which didn't check whether TikTok had actually finished transitioning to the
-next video - on a slower connection or device, that could mean the *same* video got
-skipped more than once before its own transition even finished, compounding into
-something that felt faster and more chaotic than one skip per video. The service now
-also tracks which video it last skipped and won't act on the same one twice.
-
-**To actually stop it right now, in order of speed:**
+**To turn it off right now:**
 1. **Leave TikTok** (press Home, switch apps) - the service only acts while TikTok is
-   the foreground app, so this stops everything instantly regardless of any setting.
-2. **Turn off "Only show videos about my subjects"** in this app - takes effect on the
-   very next screen TikTok renders, well under a second, no reinstall needed.
+   the foreground app.
+2. **Turn off "Auto-like videos about my subjects"** in this app - takes effect on the
+   very next screen TikTok renders, no reinstall needed.
 3. **Turn off the Accessibility Service entirely** via **Open Accessibility Settings**
-   in this app - the same button used in Setup - if you want every automation in this
-   app off at once, not just Subject Filter.
+   in this app if you want every automation in this app off at once, not just Subject
+   Boost.
 
 ## Diagnostic log
 
@@ -397,15 +397,16 @@ extraction uses only Android's built-in media APIs.
 
 ## Known open items
 
-- **Subject Filter is untested against a real feed.** It reuses the same matching
+- **Subject Boost is untested against a real feed.** It reuses the same matching
   mechanics already confirmed to work correctly (current-video scoping, case-insensitive
   substring match), but whether TikTok captions/hashtags actually contain the literal
   words you'd configure (e.g. "history") as opposed to different phrasing (e.g.
   `"#historytok"`, `"#ww2"`) hasn't been verified against a live device the way ad
-  detection has been. Because this is an allow-list rather than a block-list, a wording
-  mismatch is much more visible here - it means everything gets skipped, not just one
-  missed video - so add several plausible variants per subject rather than a single
-  word, and check **Diagnostic Log** if your feed goes quiet after turning it on.
+  detection has been - add several plausible variants per subject rather than a single
+  word. The auto-like tap itself is also unverified against a live device (the "Like
+  video 2,729 likes" wording it searches for is confirmed from a real diagnostic log,
+  but whether the click actually lands correctly isn't) - check **Diagnostic Log**'s
+  `SUBJECT_BOOST` entries if it doesn't seem to be liking matches.
 - **"Ad starts in" may never actually match anything, and that might be correct.**
   A second diagnostic log showed the exact same pattern as the first: `"Ad starts in
   5s"` appeared 222 times, always attached to a preloaded video several slots ahead,

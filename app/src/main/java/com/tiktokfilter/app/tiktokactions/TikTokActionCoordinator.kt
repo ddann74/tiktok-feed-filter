@@ -48,12 +48,12 @@ class TikTokActionCoordinator(
 
     /** True while a Block or Download tap sequence is still in progress - the caller
       * (TikTokFilterService) uses this to suspend the unrelated auto-skip checks (ad,
-      * blocked creator, subject filter) for as long as one is pending. Those two things
-      * were never meant to run concurrently on the same video: auto-skip swiping away
-      * mid-sequence would pull the video out from under a multi-tap automation that's
-      * still working on it, corrupting it - the two-stage Download sequence could end up
-      * tapping "Save" on whatever video auto-skip had since moved to, not the one it
-      * actually started on. */
+      * blocked creator) and Subject Boost's auto-like for as long as one is pending.
+      * These were never meant to run concurrently on the same video: auto-skip swiping
+      * away (or Subject Boost tapping Like) mid-sequence would pull the video out from
+      * under a multi-tap automation that's still working on it, corrupting it - the
+      * two-stage Download sequence could end up tapping "Save" on whatever video the
+      * feed had since moved to, not the one it actually started on. */
     val hasPendingAction: Boolean get() = pendingBlock != null || pendingDownload != null
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -102,6 +102,27 @@ class TikTokActionCoordinator(
         val label = if (mode == DownloadMode.AUDIO_ONLY) "the current video (audio will be extracted)" else "the current video"
         statsRepository.recordEvent("Attempting to download $label...")
         diagnosticLog.log("DOWNLOAD", "sequence started, mode=$mode, stages=${settingsRepository.downloadActionStages()}")
+    }
+
+    /** Subject Boost's positive signal: a single, immediate tap on TikTok's own Like
+      * button (see SettingsRepository.likeOptionKeywords), reusing the exact same
+      * find-by-keyword-and-click mechanism the Block/Download sequences use. Unlike
+      * those, this is one shot - not an [ActionSequence] - since liking a video is a
+      * single tap with no menu/confirm steps. Deliberately does not check or avoid an
+      * already-liked video: [findAndClickNode] matches on text/contentDescription
+      * containing "Like", and TikTok's own toggle behavior means a second tap on an
+      * already-liked video would just unlike it - the caller (TikTokFilterService) is
+      * responsible for only calling this once per video via its own dedup, the same
+      * pattern already used for auto-skip. */
+    fun attemptLikeCurrentVideo(root: AccessibilityNodeInfo) {
+        val keywords = settingsRepository.likeOptionKeywords
+        val found = findAndClickNode(root, keywords)
+        diagnosticLog.log("SUBJECT_BOOST", "auto-like attempt, keywords=$keywords - found=$found")
+        if (found) {
+            statsRepository.recordSubjectBoostLike()
+        } else {
+            diagnosticLog.log("SUBJECT_BOOST", "couldn't find TikTok's Like button")
+        }
     }
 
     /** Call on every accessibility event for the target app while either automation

@@ -1,11 +1,9 @@
 package com.tiktokfilter.app.filter
 
-enum class SkipReason { AD, BLOCKED_CREATOR, OFF_SUBJECT }
+enum class SkipReason { AD, BLOCKED_CREATOR }
 
-/** [detail] is the creator handle for BLOCKED_CREATOR, the matched keyword for AD, or
-  * the configured subject list for OFF_SUBJECT (there's no single "matched" keyword for
-  * that one - it's an absence of a match, not a match) - all three go straight into the
-  * activity log so a skip is explainable after the fact. */
+/** [detail] is the creator handle for BLOCKED_CREATOR or the matched keyword for AD -
+  * both go straight into the activity log so a skip is explainable after the fact. */
 data class SkipDecision(val reason: SkipReason, val detail: String)
 
 /**
@@ -48,9 +46,7 @@ object FilterEngine {
         adKeywords: List<String>,
         blockedCreatorsEnabled: Boolean,
         // Expected already-normalized (lowercase, no leading '@') - see normalizeHandle.
-        blockedCreators: Set<String>,
-        subjectFilterEnabled: Boolean = false,
-        subjectKeywords: List<String> = emptyList()
+        blockedCreators: Set<String>
     ): SkipDecision? {
         // TikTok preloads several videos ahead, and every one of their nodes shows up in
         // the same flat text list [TikTokFilterService.collectText] produces - a real
@@ -78,24 +74,24 @@ object FilterEngine {
                 return SkipDecision(SkipReason.AD, matchedKeyword)
             }
         }
-        // Inverted from the two checks above: those skip on a match, this skips on the
-        // *absence* of one - an allow-list, not a block-list. An ad or blocked creator
-        // is still skipped for that specific reason even if it happens to also mention
-        // a configured subject (the checks above already returned by this point if so).
-        // Meaningful (non-blank) keywords are required before this activates at all -
-        // otherwise turning the toggle on before adding any subject would skip every
-        // single video, which is a much worse failure mode here than for the two
-        // match-to-skip checks above.
-        val meaningfulSubjects = subjectKeywords.filter { it.isNotBlank() }
-        if (subjectFilterEnabled && meaningfulSubjects.isNotEmpty()) {
-            val matchesAnySubject = meaningfulSubjects.any { subject ->
-                visibleVideoTexts.any { it.contains(subject, ignoreCase = true) }
-            }
-            if (!matchesAnySubject) {
-                return SkipDecision(SkipReason.OFF_SUBJECT, meaningfulSubjects.joinToString(", "))
-            }
-        }
         return null
+    }
+
+    /** Subject Boost's match check: does the current video's own on-screen text mention
+      * at least one configured subject? Deliberately NOT wired into [evaluate] as a skip
+      * reason - Subject Boost never force-skips anything (that was the old Subject
+      * Filter's behavior, which caused a "continuous scrolling" feel with no visible
+      * stopping point). Instead the caller uses this purely as a positive signal (e.g.
+      * auto-liking a match) while leaving normal browsing/scrolling entirely alone.
+      * Blank keywords are filtered out the same way as [evaluate]'s ad-keyword check;
+      * an empty/all-blank list always returns false rather than matching everything. */
+    fun matchesSubject(screenTexts: List<String>, subjectKeywords: List<String>): Boolean {
+        val meaningfulSubjects = subjectKeywords.filter { it.isNotBlank() }
+        if (meaningfulSubjects.isEmpty()) return false
+        val visibleVideoTexts = currentVideoTexts(screenTexts)
+        return meaningfulSubjects.any { subject ->
+            visibleVideoTexts.any { it.contains(subject, ignoreCase = true) }
+        }
     }
 
     /** Truncates [screenTexts] to just the current video's own contiguous block - from

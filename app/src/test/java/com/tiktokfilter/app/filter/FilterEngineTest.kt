@@ -229,77 +229,69 @@ class FilterEngineTest {
     }
 
     @Test
-    fun `subject filter skips a video matching none of the configured subjects`() {
+    fun `subject boost never skips - a non-matching video is left alone by evaluate`() {
+        // Subject Boost (formerly Subject Filter) no longer participates in evaluate() at
+        // all - it only ever adds a positive signal (auto-like) via matchesSubject, never
+        // a skip decision, regardless of whether the video matches any subject.
         val decision = FilterEngine.evaluate(
             screenTexts = listOf("SomeCreator profile", "a caption about cooking pasta"),
             adKeywordsEnabled = false,
             adKeywords = emptyList(),
             blockedCreatorsEnabled = false,
-            blockedCreators = emptySet(),
-            subjectFilterEnabled = true,
-            subjectKeywords = listOf("history", "science")
-        )
-        assertEquals(SkipReason.OFF_SUBJECT, decision?.reason)
-        assertEquals("history, science", decision?.detail)
-    }
-
-    @Test
-    fun `subject filter does not skip a video matching a configured subject`() {
-        val decision = FilterEngine.evaluate(
-            screenTexts = listOf("SomeCreator profile", "a caption about ancient history"),
-            adKeywordsEnabled = false,
-            adKeywords = emptyList(),
-            blockedCreatorsEnabled = false,
-            blockedCreators = emptySet(),
-            subjectFilterEnabled = true,
-            subjectKeywords = listOf("history", "science")
+            blockedCreators = emptySet()
         )
         assertNull(decision)
     }
 
     @Test
-    fun `subject filter is inert when no subjects are configured yet`() {
-        // Guards against the failure mode of turning the toggle on before adding any
-        // subject - should never mean "skip literally everything".
-        val decision = FilterEngine.evaluate(
+    fun `matchesSubject is true when the current video mentions a configured subject`() {
+        val matches = FilterEngine.matchesSubject(
+            screenTexts = listOf("SomeCreator profile", "a caption about ancient history"),
+            subjectKeywords = listOf("history", "science")
+        )
+        assertEquals(true, matches)
+    }
+
+    @Test
+    fun `matchesSubject is false when the current video mentions none of the configured subjects`() {
+        val matches = FilterEngine.matchesSubject(
+            screenTexts = listOf("SomeCreator profile", "a caption about cooking pasta"),
+            subjectKeywords = listOf("history", "science")
+        )
+        assertEquals(false, matches)
+    }
+
+    @Test
+    fun `matchesSubject is false when no subjects are configured yet`() {
+        // Guards against the failure mode of turning Subject Boost on before adding any
+        // subject - should never mean "matches literally everything".
+        val matches = FilterEngine.matchesSubject(
             screenTexts = listOf("SomeCreator profile", "any caption at all"),
-            adKeywordsEnabled = false,
-            adKeywords = emptyList(),
-            blockedCreatorsEnabled = false,
-            blockedCreators = emptySet(),
-            subjectFilterEnabled = true,
             subjectKeywords = emptyList()
         )
-        assertNull(decision)
+        assertEquals(false, matches)
     }
 
     @Test
-    fun `subject filter is scoped to the current video, not a preloaded one`() {
-        val decision = FilterEngine.evaluate(
+    fun `matchesSubject is scoped to the current video, not a preloaded one`() {
+        val matches = FilterEngine.matchesSubject(
             screenTexts = listOf(
                 "CurrentCreator profile", "a caption about cooking pasta", "Video",
                 "NextCreator profile", "a caption about history"
             ),
-            adKeywordsEnabled = false,
-            adKeywords = emptyList(),
-            blockedCreatorsEnabled = false,
-            blockedCreators = emptySet(),
-            subjectFilterEnabled = true,
             subjectKeywords = listOf("history")
         )
-        assertEquals(SkipReason.OFF_SUBJECT, decision?.reason)
+        assertEquals(false, matches)
     }
 
     @Test
-    fun `a blocked creator is skipped for that reason even if the video matches a subject`() {
+    fun `a blocked creator is still skipped for that reason regardless of subject matching`() {
         val decision = FilterEngine.evaluate(
             screenTexts = listOf("Annoying Account profile", "a caption about history"),
             adKeywordsEnabled = false,
             adKeywords = emptyList(),
             blockedCreatorsEnabled = true,
-            blockedCreators = setOf("annoying account"),
-            subjectFilterEnabled = true,
-            subjectKeywords = listOf("history")
+            blockedCreators = setOf("annoying account")
         )
         assertEquals(SkipReason.BLOCKED_CREATOR, decision?.reason)
     }
