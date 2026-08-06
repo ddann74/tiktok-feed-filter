@@ -228,11 +228,17 @@ class TikTokActionCoordinator(
       * on whatever thread accessibility events arrive on. */
     private fun locateAndExtractAudio(afterEpochSeconds: Long, attempt: Int) {
         val uri = DownloadedVideoLocator.findRecentlyAddedVideoUri(context, afterEpochSeconds)
-        diagnosticLog.log("EXTRACT", "locate attempt $attempt (after=$afterEpochSeconds) -> $uri")
+        // Elapsed-since-tap, not just the attempt index - the interval between attempts
+        // isn't always exactly LOCATE_RETRY_DELAY_MILLIS (a busy main thread handling
+        // TikTok's own events can delay a postDelayed callback), so the attempt count
+        // alone understates how long this has actually been waiting. Confirmed real:
+        // one gap ran ~4s against a nominal 1.5s delay.
+        val elapsedMillis = System.currentTimeMillis() - afterEpochSeconds * 1000
+        diagnosticLog.log("EXTRACT", "locate attempt $attempt (after=$afterEpochSeconds, elapsed=${elapsedMillis}ms) -> $uri")
         if (uri == null) {
             if (attempt >= MAX_LOCATE_ATTEMPTS) {
                 statsRepository.recordEvent("Downloaded video wasn't found in the media library - audio extraction skipped")
-                diagnosticLog.log("EXTRACT", "gave up after $MAX_LOCATE_ATTEMPTS attempts")
+                diagnosticLog.log("EXTRACT", "gave up after $MAX_LOCATE_ATTEMPTS attempts (${elapsedMillis}ms) - the video may still show up in the media library later, just too late for auto-extraction")
                 return
             }
             mainHandler.postDelayed({ locateAndExtractAudio(afterEpochSeconds, attempt + 1) }, LOCATE_RETRY_DELAY_MILLIS)
@@ -284,7 +290,18 @@ class TikTokActionCoordinator(
         private const val ACTION_TIMEOUT_MILLIS = 4_000L
         private const val MAX_TREE_DEPTH = 60
         private const val MAX_ANCESTOR_HOPS = 6
-        private const val MAX_LOCATE_ATTEMPTS = 5
+        // Confirmed via a real diagnostic log: MediaStore indexing the video TikTok's
+        // Save button just wrote can genuinely take 10+ seconds, not the "short delay"
+        // this was originally sized for - one real download only succeeded on the very
+        // last allowed attempt (the 6th, ~11s in), with one inter-attempt gap alone
+        // running ~4s (likely main-thread contention from TikTok's own scroll/
+        // accessibility events firing at the same time). The old budget (5 attempts *
+        // 1.5s = 7.5s) was giving up right around when files were still genuinely on
+        // their way, which matches "the audio button doesn't work most of the time."
+        // Raised to a much more generous ~30s nominal budget - there's no cost to
+        // waiting longer here (a silent background poll, nothing user-facing blocks on
+        // it), so erring toward "wait longer" is strictly better than giving up early.
+        private const val MAX_LOCATE_ATTEMPTS = 20
         private const val LOCATE_RETRY_DELAY_MILLIS = 1_500L
     }
 }

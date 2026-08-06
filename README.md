@@ -159,8 +159,12 @@ find. What happens after that tap sequence completes is where they differ:
 - **Video** stops there. The video is now in your device's media library, same as if
   you'd tapped Save yourself - nothing more happens.
 - **Audio** additionally looks for that newly-saved video in the device's media library
-  (polling briefly, since the file isn't necessarily written the instant the tap
-  registers), then extracts its audio track on-device - pure container remuxing via
+  (polling for up to ~30 seconds, not instantly - a real diagnostic log showed the file
+  can genuinely take 10+ seconds to show up in the shared media index after TikTok's
+  Save button writes it, occasionally longer if the main thread is busy handling
+  TikTok's own scroll events at the same time; an earlier, much shorter ~7.5s budget was
+  confirmed giving up while files were still legitimately on their way), then extracts
+  its audio track on-device - pure container remuxing via
   Android's built-in `MediaExtractor`/`MediaMuxer`, no re-encoding, no external library,
   no network call of any kind - and saves it as an `.m4a` file under this app's own
   external files directory (`Android/data/com.tiktokfilter.app/files/ExtractedAudio/`,
