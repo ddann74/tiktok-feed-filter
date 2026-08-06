@@ -45,6 +45,14 @@ class TikTokActionCoordinator(
     private var pendingDownload: ActionSequence? = null
     private var pendingDownloadMode: DownloadMode = DownloadMode.AUDIO_ONLY
     private var downloadTriggeredAtEpochSeconds: Long = 0L
+    // True from the moment an Audio download starts until its MediaStore locate loop
+    // either finds a file and finishes extracting (success or failure) or gives up -
+    // deliberately a SEPARATE, longer-lived flag from pendingDownload/hasPendingAction,
+    // which only covers the quick on-screen tap sequence. locateAndExtractAudio's poll
+    // can run for up to ~30s well after pendingDownload has already gone back to null -
+    // see startDownloadCurrentVideo's doc for why a second download during that window
+    // is rejected rather than allowed to race it.
+    private var isAudioExtractionInFlight: Boolean = false
 
     /** True while a Block or Download tap sequence is still in progress - the caller
       * (TikTokFilterService) uses this to suspend the unrelated auto-skip checks (ad,
@@ -96,9 +104,25 @@ class TikTokActionCoordinator(
             diagnosticLog.log("DOWNLOAD", "skipped - current screen is a Live stream")
             return
         }
+        // A previous Audio download's MediaStore locate loop can still be running (up to
+        // ~30s - see locateAndExtractAudio) well after its own tap sequence finished.
+        // Starting a NEW Save now - Video or Audio, either one - writes another video
+        // into the exact same shared MediaStore that loop is polling, which matches on
+        // "most recently added" with no way to tell the two apart. Left unguarded, the
+        // still-running loop could silently latch onto the WRONG video and report a
+        // convincing-looking success for the wrong file's audio, rather than failing
+        // loudly - worse than just being slow. Rejecting outright here is safer.
+        if (isAudioExtractionInFlight) {
+            statsRepository.recordEvent("An audio extraction from a previous Download is still locating its file - wait for it to finish before starting another")
+            diagnosticLog.log("DOWNLOAD", "rejected - previous audio extraction still in flight")
+            return
+        }
         pendingDownload = ActionSequence(settingsRepository.downloadActionStages(), System.currentTimeMillis())
         pendingDownloadMode = mode
         downloadTriggeredAtEpochSeconds = System.currentTimeMillis() / 1000
+        if (mode == DownloadMode.AUDIO_ONLY) {
+            isAudioExtractionInFlight = true
+        }
         val label = if (mode == DownloadMode.AUDIO_ONLY) "the current video (audio will be extracted)" else "the current video"
         statsRepository.recordEvent("Attempting to download $label...")
         diagnosticLog.log("DOWNLOAD", "sequence started, mode=$mode, stages=${settingsRepository.downloadActionStages()}")
@@ -148,7 +172,12 @@ class TikTokActionCoordinator(
                     locateAndExtractAudio(downloadTriggeredAtEpochSeconds, attempt = 0)
                 }
             },
-            onTimeout = { statsRepository.recordEvent("Couldn't find a Download option for this video - it may not be enabled by the creator") }
+            onTimeout = {
+                statsRepository.recordEvent("Couldn't find a Download option for this video - it may not be enabled by the creator")
+                // Never reached the locate step at all - always safe to clear regardless
+                // of mode (a no-op if this was a Video-only download, which never sets it).
+                isAudioExtractionInFlight = false
+            }
         )
     }
 
@@ -227,22 +256,32 @@ class TikTokActionCoordinator(
       * to a background thread for the actual extraction, since remuxing shouldn't run
       * on whatever thread accessibility events arrive on. */
     private fun locateAndExtractAudio(afterEpochSeconds: Long, attempt: Int) {
-        val uri = DownloadedVideoLocator.findRecentlyAddedVideoUri(context, afterEpochSeconds)
+        val located = DownloadedVideoLocator.findRecentlyAddedVideo(context, afterEpochSeconds)
         // Elapsed-since-tap, not just the attempt index - the interval between attempts
         // isn't always exactly LOCATE_RETRY_DELAY_MILLIS (a busy main thread handling
         // TikTok's own events can delay a postDelayed callback), so the attempt count
         // alone understates how long this has actually been waiting. Confirmed real:
         // one gap ran ~4s against a nominal 1.5s delay.
         val elapsedMillis = System.currentTimeMillis() - afterEpochSeconds * 1000
-        diagnosticLog.log("EXTRACT", "locate attempt $attempt (after=$afterEpochSeconds, elapsed=${elapsedMillis}ms) -> $uri")
-        if (uri == null) {
+        diagnosticLog.log("EXTRACT", "locate attempt $attempt (after=$afterEpochSeconds, elapsed=${elapsedMillis}ms) -> ${located?.uri} (owner=${located?.ownerPackage})")
+        if (located == null) {
             if (attempt >= MAX_LOCATE_ATTEMPTS) {
                 statsRepository.recordEvent("Downloaded video wasn't found in the media library - audio extraction skipped")
                 diagnosticLog.log("EXTRACT", "gave up after $MAX_LOCATE_ATTEMPTS attempts (${elapsedMillis}ms) - the video may still show up in the media library later, just too late for auto-extraction")
+                isAudioExtractionInFlight = false
                 return
             }
             mainHandler.postDelayed({ locateAndExtractAudio(afterEpochSeconds, attempt + 1) }, LOCATE_RETRY_DELAY_MILLIS)
             return
+        }
+        val uri = located.uri
+        // Not used to reject the match (see DownloadedVideoLocator's doc for why) - just
+        // a visible warning worth checking in the log, since a mismatch here is the
+        // clearest available sign the extraction below might target the wrong video
+        // (e.g. another app saved something into the shared media library in the same
+        // narrow window this was polling).
+        if (located.ownerPackage != null && located.ownerPackage !in settingsRepository.targetPackages) {
+            diagnosticLog.log("EXTRACT", "WARNING: located video's owner package (${located.ownerPackage}) doesn't match configured target packages (${settingsRepository.targetPackages}) - this may be the wrong video")
         }
 
         backgroundExecutor.execute {
@@ -282,6 +321,7 @@ class TikTokActionCoordinator(
                         diagnosticLog.log("EXTRACT", "failed for $uri - no audio track found in the saved video")
                     }
                 }
+                isAudioExtractionInFlight = false
             }
         }
     }

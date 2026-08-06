@@ -176,6 +176,24 @@ If a creator has disabled downloads for their video, the **Save video** option s
 doesn't exist on screen for either choice, the tap sequence times out, and the
 **Activity** log says the download wasn't available for that video.
 
+**Only one Audio download resolves at a time.** Its media-library polling (above) can
+run for up to ~30 seconds after the tap sequence itself already finished - long enough
+that a second Download tap (Video or Audio) in that window would write another video
+into the exact same shared media library the first request is still polling, with no
+reliable way to tell the two apart by "most recently added" alone. Rather than risk the
+first request silently latching onto the *second* video's file - a wrong-video
+extraction that would still report as a convincing-looking success - a new Download is
+rejected outright with an Activity log line telling you to wait, for as long as a
+previous Audio extraction is still locating its file. Video-only downloads and
+extractions that have already finished aren't affected.
+
+As a second, non-blocking safety net for the same wrong-video risk: on Android 10+,
+this app also checks the media library's own record of *which app wrote the file it
+found* (when the device actually populates that record - not guaranteed on every OEM).
+A mismatch doesn't stop the extraction (the record isn't reliable enough to trust as a
+hard filter), but it does log a `WARNING` line in the **Diagnostic Log** worth checking
+if an extracted file ever turns out to be the wrong video.
+
 **Judging whether an extracted audio file is actually complete:** a successful
 extraction's Activity line includes the extracted duration and sample count, e.g.
 `"Audio extracted (~42.3s, 1,984 samples) to Android/data/.../ExtractedAudio/..."` -
