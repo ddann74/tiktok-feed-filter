@@ -39,13 +39,20 @@ class SettingsRepository(context: Context) {
         get() = prefs.getBoolean(KEY_OVERLAY_ENABLED, true)
         set(value) = prefs.edit().putBoolean(KEY_OVERLAY_ENABLED, value).apply()
 
-    /** Off by default - the diagnostic log is verbose (every screen evaluation, every
-      * automation stage attempt, raw on-screen text) by design, since that detail is
-      * exactly what's needed to tell why a skip/block/download did or didn't happen,
-      * but it's more than most day-to-day use needs. Turn on when actually
-      * troubleshooting or tuning keyword lists, then share/clear it when done. */
+    /** On by default (changed 2026-08-23; was off) - two real bugs (an ad-detection gap,
+      * and the repeat-view fingerprint collision that caused continuous auto-scrolling)
+      * both needed a diagnostic log to actually diagnose, and a log that only starts
+      * capturing after you've already noticed something's wrong has already missed the
+      * moment that mattered. The log is still verbose by design (every screen evaluation,
+      * every automation stage attempt, raw on-screen text) and still capped at 512KB with
+      * oldest entries trimmed first (see DiagnosticLog) - being on by default doesn't
+      * change what it captures or how it's stored, just removes the step of remembering
+      * to turn it on before reproducing an issue. Still fully opt-out: turn it off in
+      * Setup if you'd rather not have it running. Because this changes an existing
+      * SharedPreferences default (not a stored value), this also takes effect on an
+      * existing install that never touched this toggle - not just fresh ones. */
     var isDiagnosticLoggingEnabled: Boolean
-        get() = prefs.getBoolean(KEY_DIAGNOSTIC_LOGGING_ENABLED, false)
+        get() = prefs.getBoolean(KEY_DIAGNOSTIC_LOGGING_ENABLED, true)
         set(value) = prefs.edit().putBoolean(KEY_DIAGNOSTIC_LOGGING_ENABLED, value).apply()
 
     /** Auto-skips a video once you've genuinely watched it [repeatViewLimit] times (see

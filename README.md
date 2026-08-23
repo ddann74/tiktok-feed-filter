@@ -368,9 +368,14 @@ is recorded too - which keywords it searched for, whether a matching node was fo
 whether it timed out - so a stalled automation shows you precisely which step it never
 got past. Audio extraction failures include the actual exception and stack trace.
 
-It's off by default because this level of detail is genuinely noisy and not something
-day-to-day use needs - turn it on when you're actively troubleshooting or tuning a
-keyword list, reproduce the issue, then either:
+**On by default** (changed 2026-08-23) - two real bugs only got diagnosed because a
+diagnostic log already existed to look at; one that only starts capturing after you've
+noticed something's wrong has already missed the moment that mattered. Still fully
+opt-out (turn off **Enable diagnostic logging** in Setup) if you'd rather not have it
+running, and it's still verbose by design, capped at 512KB with oldest entries trimmed
+first (see `DiagnosticLog`) - being on by default doesn't change what it captures or
+how much it keeps, just removes the step of remembering to enable it ahead of time.
+When you actually need to dig into something, reproduce the issue, then either:
 
 - **Share Diagnostic Log** - opens the system share sheet (email, Files, a text editor,
   anywhere) with the log file, via a scoped `FileProvider` grant - nothing is shared
@@ -406,10 +411,10 @@ sharing it is always a manual, explicit action you take.
 8. Open TikTok and scroll - matching videos should now skip on their own, and the
    floating Block/Download buttons should appear. Check **Activity** in this app
    afterward to see what it caught (or attempted and couldn't complete).
-9. If anything isn't working as expected, turn on **Enable diagnostic logging**
-   under **Diagnostics**, reproduce the issue, then use **Share Diagnostic Log** to
-   export the detail behind it (see *Diagnostic log*, above). It's off by default -
-   only turn it on when you actually need it.
+9. **Diagnostic logging is already on by default** - if anything isn't working as
+   expected, just reproduce the issue, then use **Share Diagnostic Log** under
+   **Diagnostics** to export the detail behind it (see *Diagnostic log*, above). Turn
+   off **Enable diagnostic logging** if you'd rather it not run.
 
 **minSdk 24 (Android 7.0)** is a hard requirement, not a stylistic choice -
 `AccessibilityService.dispatchGesture`, the actual mechanism used to perform a skip,
