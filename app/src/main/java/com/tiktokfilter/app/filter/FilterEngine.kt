@@ -47,6 +47,13 @@ object FilterEngine {
     private val likeCountRegex = Regex("^Like video .+ likes?$", RegexOption.IGNORE_CASE)
     private val commentCountRegex = Regex("^[\\d,.]+[A-Za-z]* comments?$", RegexOption.IGNORE_CASE)
 
+    // UNCONFIRMED, reasonable-sounding guess (same honesty status as every other
+    // threshold in this app) - short enough to still catch a real short caption, long
+    // enough to filter out a single emoji/generic reaction that could plausibly repeat
+    // across many different, unrelated videos and collapse their fingerprints together
+    // (see videoFingerprint's own "CONFIRMED REAL BUG" comment).
+    private const val MIN_CAPTION_PROXY_LENGTH = 8
+
     fun evaluate(
         screenTexts: List<String>,
         adKeywordsEnabled: Boolean,
@@ -161,17 +168,33 @@ object FilterEngine {
       * best-effort signal every other heuristic in this file already is.
       *
       * Returns null if no creator identity can be found at all ([extractHandle] returns
-      * null) - deliberately NOT falling back to some other value the way
+      * null), OR if no caption-proxy text meeting [MIN_CAPTION_PROXY_LENGTH] can be found
+      * for this video - deliberately NOT falling back to some other value the way
       * TikTokFilterService's transient same-tick dedup does (see the app's own premortem,
       * docs/PRD.md ss4a-P3): a wrong fingerprint here would corrupt a PERSISTED count
-      * across the user's whole history, not just risk one duplicate action in the moment. */
+      * across the user's whole history, not just risk one duplicate action in the moment.
+      *
+      * CONFIRMED REAL BUG, fixed here: the caption-proxy check originally fell back to an
+      * empty string when no distinguishing text was found (a captionless video, or one
+      * whose caption is short/generic) - collapsing the fingerprint to just "handle|" for
+      * EVERY such video from that creator. Scrolling past a handful of unrelated,
+      * genuinely-different captionless videos from the same creator hit the repeat-view
+      * limit on their shared fingerprint almost immediately, then auto-skipped every
+      * subsequent video matching that same degenerate fingerprint - continuous,
+      * unstoppable scrolling, the exact same failure signature this codebase already
+      * documented once before for the old Subject Filter ("swipe through video after
+      * video with no visible stopping point"). Refusing to track a video with no real
+      * caption-proxy text at all closes that collision, at the cost of never tracking
+      * repeat views for genuinely captionless content - a real, accepted tradeoff, not a
+      * free fix. */
     fun videoFingerprint(screenTexts: List<String>): String? {
         val handle = extractHandle(screenTexts) ?: return null
         val visibleVideoTexts = currentVideoTexts(screenTexts)
         val captionProxy = visibleVideoTexts
             .filterNot { isKnownTemplateText(it, handle) }
             .maxByOrNull { it.length }
-            .orEmpty()
+            ?: return null
+        if (captionProxy.trim().length < MIN_CAPTION_PROXY_LENGTH) return null
         return "$handle|$captionProxy"
     }
 

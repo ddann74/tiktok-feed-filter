@@ -365,6 +365,31 @@ class FilterEngineTest {
     }
 
     @Test
+    fun `videoFingerprint returns null for a captionless video instead of collapsing to a shared fingerprint`() {
+        // CONFIRMED REAL BUG this guards against: no text survives the template-exclusion
+        // filter (a genuinely captionless video), so there's nothing real to distinguish
+        // it from every OTHER captionless video the same creator has ever posted. Falling
+        // back to an empty caption proxy ("handle|") would collapse them all into one
+        // shared, persisted fingerprint - exactly the bug that caused continuous,
+        // unstoppable auto-skipping once repeat-view was actually used on a real feed.
+        val fingerprint = FilterEngine.videoFingerprint(
+            listOf("SomeCreator profile", "Follow SomeCreator", "SomeCreator", "Video")
+        )
+        assertNull(fingerprint)
+    }
+
+    @Test
+    fun `videoFingerprint returns null when the only remaining text is too short to trust`() {
+        // A single short reaction/emoji-only caption is exactly the kind of text that
+        // could plausibly repeat across many different, unrelated videos - same collision
+        // risk as the fully-captionless case above, just less extreme.
+        val fingerprint = FilterEngine.videoFingerprint(
+            listOf("SomeCreator profile", "Follow SomeCreator", "SomeCreator", "lol", "Video")
+        )
+        assertNull(fingerprint)
+    }
+
+    @Test
     fun `videoFingerprint differs for two different videos from the same creator`() {
         val first = FilterEngine.videoFingerprint(
             listOf("SomeCreator profile", "Follow SomeCreator", "SomeCreator", "First video's caption", "Video")

@@ -321,10 +321,17 @@ node, a like/comment count, the literal "Video" marker). This is a heuristic, no
 guarantee - a short real caption could lose to some other long on-screen text, and two
 genuinely different videos could theoretically produce the same fingerprint if their
 guessed-caption text happens to collide. **If no creator identity can be found at all,
-the video is never tracked or skipped for this reason** - deliberately not falling back
-to some other identity the way the transient same-screen skip-dedup elsewhere does,
+OR no caption-proxy text of at least 8 characters can be found, the video is never
+tracked or skipped for this reason** - deliberately not falling back to some other
+identity (or an empty one) the way the transient same-screen skip-dedup elsewhere does,
 since a wrong fingerprint here would corrupt a *persisted* count across your whole
-history, not just risk one duplicate action in the moment.
+history, not just risk one duplicate action in the moment. **This exact gap caused a
+real, confirmed bug**: captionless videos originally fell back to an empty caption
+proxy, collapsing every captionless video from one creator into a single shared
+fingerprint - hitting the repeat-view limit almost immediately and then auto-skipping
+every subsequent matching video, continuously, with no visible stopping point (see
+*Known open items*, below, for the full story). Fixed by refusing to track a video at
+all rather than guessing when there's nothing real to distinguish it.
 
 **Only genuinely-watched views count.** A video that gets skipped for any reason (an
 ad, a blocked creator, or already being over the repeat-view limit) was never actually
@@ -464,16 +471,22 @@ extraction uses only Android's built-in media APIs.
 
 ## Known open items
 
-- **Repeat-view skip's video fingerprint is untested against a real feed.**
-  `FilterEngine.videoFingerprint`'s caption-guessing heuristic (see its own section
-  above) is unit-tested against constructed screen-text fixtures matching the shapes
-  real diagnostic logs already confirmed for ad/creator detection, but whether it
-  reliably produces the SAME fingerprint for genuine re-views of the same real video
-  (not just in a test fixture) hasn't been confirmed against a live device the way ad
-  detection has been. Watch **Diagnostic Log**'s `FILTER` "view recorded" entries
-  before relying on it - if the same video you're re-watching doesn't show a
-  climbing count, or two different videos share one, the caption-guessing heuristic
-  needs a closer look.
+- ~~**Repeat-view skip's video fingerprint is untested against a real feed.**~~
+  **A real bug WAS found this way and is now fixed**: `videoFingerprint` originally fell
+  back to an empty caption proxy for a captionless (or very-short-caption) video,
+  collapsing every such video from the same creator into one shared, persisted
+  fingerprint - hitting the repeat-view limit almost immediately and then auto-skipping
+  every subsequent video matching that fingerprint, indistinguishable from a hang
+  (the exact same failure signature already documented once before for the old Subject
+  Filter). Fixed by refusing to fingerprint a video at all when no caption-proxy text of
+  at least 8 characters can be found, rather than guessing - the same "don't track
+  what you can't confidently identify" principle already used for the missing-creator
+  case. The remaining, still-real caveat: this only closes the *empty/short-caption*
+  collision - two different videos from the same creator with genuinely similar longer
+  captions could still theoretically collide, which no test fixture can rule out, only
+  real, extended use can. Watch **Diagnostic Log**'s `FILTER` "view recorded" entries -
+  if the same video you're re-watching doesn't show a climbing count, or two clearly
+  different videos share one, that heuristic still needs a closer look.
 - **Subject Boost is untested against a real feed.** It reuses the same matching
   mechanics already confirmed to work correctly (current-video scoping, case-insensitive
   substring match), but whether TikTok captions/hashtags actually contain the literal
