@@ -304,6 +304,49 @@ troubleshooting approach as every other keyword list in this app.
    in this app if you want every automation in this app off at once, not just Subject
    Boost.
 
+## Repeat-view skip
+
+Auto-skips a video once you've genuinely watched it a configured number of times
+(3 by default) - a video you've already seen 3+ times gets swiped past automatically
+instead of showing up again. **Off by default**, same reasoning as Subject Boost: it's
+a brand-new, unverified-against-a-real-device heuristic.
+
+**Why this is harder than ad/creator skipping**: TikTok exposes no real per-video ID to
+accessibility services - there's no official way to ask "have I seen this exact video
+before." `FilterEngine.videoFingerprint` works around that by combining the creator
+identity (the same display-name lookup ad/blocked-creator skipping already relies on -
+see *Identifying a creator*, above) with a guess at the video's own caption: the
+longest remaining on-screen text that isn't a known template shape (a profile/follow
+node, a like/comment count, the literal "Video" marker). This is a heuristic, not a
+guarantee - a short real caption could lose to some other long on-screen text, and two
+genuinely different videos could theoretically produce the same fingerprint if their
+guessed-caption text happens to collide. **If no creator identity can be found at all,
+the video is never tracked or skipped for this reason** - deliberately not falling back
+to some other identity the way the transient same-screen skip-dedup elsewhere does,
+since a wrong fingerprint here would corrupt a *persisted* count across your whole
+history, not just risk one duplicate action in the moment.
+
+**Only genuinely-watched views count.** A video that gets skipped for any reason (an
+ad, a blocked creator, or already being over the repeat-view limit) was never actually
+watched, so it's never counted as a "view" - the counter only increments once per real
+transition into a video that played normally, not once per accessibility event while
+you're still watching it.
+
+**Not tracked on Live streams** - a live broadcast isn't a repeatable "video" the way a
+normal FYP post is, and a Live room's constantly-changing viewer count/comments would
+make the caption-guessing heuristic above especially unreliable there.
+
+**View counts are capped to the 500 most recently-seen videos** (oldest evicted first) -
+without a cap this would grow forever as you scroll through TikTok's effectively
+unbounded catalog. **Reset History** in Setup clears every tracked count immediately,
+for when you want to intentionally re-watch something without waiting for the cap to
+age it out naturally.
+
+Turn on **Enable diagnostic logging** and watch for `FILTER` entries mentioning "view
+recorded" to confirm this is actually identifying videos correctly (the same creator
+consistently gets the same fingerprint across re-views, and different videos get
+different ones) before relying on it.
+
 ## Diagnostic log
 
 The **Activity** log is deliberately curated for everyday use - short, friendly lines
@@ -397,7 +440,9 @@ If you use TikTok Lite or a build under a different package name, add it under
 ## Architecture
 
 ```
-filter/          FilterEngine - pure Kotlin, no Android dependencies, unit-tested
+filter/          FilterEngine - pure Kotlin, no Android dependencies, unit-tested -
+                  also RepeatViewRepository, a SharedPreferences-backed, LRU-capped
+                  per-video view counter for the repeat-view skip feature
 tiktokactions/    ActionSequence (pure, unit-tested step logic) +
                   TikTokActionCoordinator (drives the Block/Download tap sequences,
                   triggers audio extraction once a download completes)
@@ -419,6 +464,16 @@ extraction uses only Android's built-in media APIs.
 
 ## Known open items
 
+- **Repeat-view skip's video fingerprint is untested against a real feed.**
+  `FilterEngine.videoFingerprint`'s caption-guessing heuristic (see its own section
+  above) is unit-tested against constructed screen-text fixtures matching the shapes
+  real diagnostic logs already confirmed for ad/creator detection, but whether it
+  reliably produces the SAME fingerprint for genuine re-views of the same real video
+  (not just in a test fixture) hasn't been confirmed against a live device the way ad
+  detection has been. Watch **Diagnostic Log**'s `FILTER` "view recorded" entries
+  before relying on it - if the same video you're re-watching doesn't show a
+  climbing count, or two different videos share one, the caption-guessing heuristic
+  needs a closer look.
 - **Subject Boost is untested against a real feed.** It reuses the same matching
   mechanics already confirmed to work correctly (current-video scoping, case-insensitive
   substring match), but whether TikTok captions/hashtags actually contain the literal

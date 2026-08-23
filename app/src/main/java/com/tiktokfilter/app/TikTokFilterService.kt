@@ -9,6 +9,7 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.tiktokfilter.app.diagnostics.DiagnosticLog
 import com.tiktokfilter.app.filter.FilterEngine
+import com.tiktokfilter.app.filter.RepeatViewRepository
 import com.tiktokfilter.app.overlay.OverlayController
 import com.tiktokfilter.app.tiktokactions.DownloadMode
 import com.tiktokfilter.app.tiktokactions.TikTokActionCoordinator
@@ -29,6 +30,7 @@ class TikTokFilterService : AccessibilityService() {
     private lateinit var diagnosticLog: DiagnosticLog
     private lateinit var actionCoordinator: TikTokActionCoordinator
     private lateinit var overlayController: OverlayController
+    private lateinit var repeatViewRepository: RepeatViewRepository
     private var lastSkipMillis: Long = 0L
     // Identifies whichever video the last skip acted on (see performSkipGesture's call
     // site) - guards against skipping the same video more than once if TikTok's own
@@ -40,6 +42,14 @@ class TikTokFilterService : AccessibilityService() {
     // (normal - nothing here forces it to move on) would get an attempted like on every
     // single one of those events, not just once.
     private var lastAutoLikedVideoIdentity: String? = null
+    // Same dedup shape again, but for repeat-view counting - without it, a video that
+    // lingers on screen across multiple NOT-skipped accessibility events (normal - the
+    // user is just watching it) would count as several "views" instead of one. Tracks the
+    // more precise FilterEngine.videoFingerprint (creator + caption proxy), not the
+    // coarser lastSkippedVideoIdentity/lastAutoLikedVideoIdentity fallback shape, since a
+    // wrong repeat-view count would be a PERSISTED mistake, not just a one-off in-the-
+    // moment one (see RepeatViewRepository's own doc).
+    private var lastSeenVideoFingerprint: String? = null
 
     private val mainHandler = Handler(Looper.getMainLooper())
     // A single reusable Runnable so scheduling it again (or cancelling it) always
@@ -51,6 +61,7 @@ class TikTokFilterService : AccessibilityService() {
         settingsRepository = SettingsRepository(this)
         statsRepository = StatsRepository(this)
         diagnosticLog = DiagnosticLog(this, settingsRepository)
+        repeatViewRepository = RepeatViewRepository(this)
         actionCoordinator = TikTokActionCoordinator(this, settingsRepository, statsRepository, diagnosticLog)
         overlayController = OverlayController(
             service = this,
@@ -121,15 +132,38 @@ class TikTokFilterService : AccessibilityService() {
 
         val isLive = FilterEngine.isLiveStream(texts, settingsRepository.liveIndicatorKeywords)
 
+        // Repeat-view skip: excluded on a Live room the same way Subject Boost/Download
+        // already are - a live broadcast isn't a repeatable "video" the way a normal FYP
+        // post is, and a Live room's constantly-changing viewer count/comments would make
+        // FilterEngine.videoFingerprint's caption-proxy heuristic especially unstable.
+        // videoFingerprint returns null when no creator identity can be found at all (see
+        // its own doc) - repeatViewCount stays 0 in that case, same as "never seen before",
+        // rather than guessing at some other identity.
+        val videoFingerprint = if (isLive) null else FilterEngine.videoFingerprint(texts)
+        val repeatViewCount = if (videoFingerprint != null) repeatViewRepository.viewCount(videoFingerprint) else 0
+
         val decision = FilterEngine.evaluate(
             screenTexts = texts,
             adKeywordsEnabled = settingsRepository.isAdSkipEnabled,
             adKeywords = settingsRepository.adKeywords,
             blockedCreatorsEnabled = settingsRepository.isBlockedCreatorSkipEnabled,
-            blockedCreators = settingsRepository.blockedCreators.toSet()
+            blockedCreators = settingsRepository.blockedCreators.toSet(),
+            repeatViewSkipEnabled = settingsRepository.isRepeatViewSkipEnabled,
+            repeatViewCount = repeatViewCount,
+            repeatViewLimit = settingsRepository.repeatViewLimit
         )
         if (decision == null) {
             diagnosticLog.log("FILTER", "no match - live=$isLive - texts=$texts")
+            // Counts as one genuine view - see lastSeenVideoFingerprint's own field
+            // comment for why this only fires once per real transition into this video,
+            // not once per lingering accessibility event. A video that got skipped for
+            // any reason (ad, blocked creator, already over the repeat-view limit) was
+            // never actually watched, so it's never counted here.
+            if (videoFingerprint != null && videoFingerprint != lastSeenVideoFingerprint) {
+                repeatViewRepository.recordView(videoFingerprint)
+                lastSeenVideoFingerprint = videoFingerprint
+                diagnosticLog.log("FILTER", "view recorded (now $repeatViewCount -> ${repeatViewCount + 1}) - texts=$texts")
+            }
             // Subject Boost never skips - it only ever adds a positive signal (auto-like)
             // on top of otherwise-normal browsing, so it's only relevant once we already
             // know this video isn't being skipped for an unrelated reason (ad/blocked

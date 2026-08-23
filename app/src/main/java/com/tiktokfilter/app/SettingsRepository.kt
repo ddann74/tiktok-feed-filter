@@ -48,6 +48,24 @@ class SettingsRepository(context: Context) {
         get() = prefs.getBoolean(KEY_DIAGNOSTIC_LOGGING_ENABLED, false)
         set(value) = prefs.edit().putBoolean(KEY_DIAGNOSTIC_LOGGING_ENABLED, value).apply()
 
+    /** Auto-skips a video once you've genuinely watched it [repeatViewLimit] times (see
+      * RepeatViewRepository). Off by default, same reasoning as Subject Boost below - a
+      * brand-new, unverified-against-a-real-device heuristic
+      * (FilterEngine.videoFingerprint) stacked on top of the same creator-identity lookup
+      * ad/blocked-creator skipping already relies on, so it errs toward not silently
+      * changing what you see until you opt in. */
+    var isRepeatViewSkipEnabled: Boolean
+        get() = prefs.getBoolean(KEY_REPEAT_VIEW_SKIP_ENABLED, false)
+        set(value) = prefs.edit().putBoolean(KEY_REPEAT_VIEW_SKIP_ENABLED, value).apply()
+
+    /** How many genuine (non-skipped) views before a video gets auto-skipped. Editable
+      * rather than hardcoded, same reasoning as every keyword list in this app - the
+      * "right" number is a personal preference, not something this app can guess once and
+      * lock in. */
+    var repeatViewLimit: Int
+        get() = prefs.getInt(KEY_REPEAT_VIEW_LIMIT, DEFAULT_REPEAT_VIEW_LIMIT)
+        set(value) = prefs.edit().putInt(KEY_REPEAT_VIEW_LIMIT, value).apply()
+
     /** Whether a blocked creator's Live room should be auto-skipped the same way their
       * normal videos are - on by default for consistency with blocked-creator skipping,
       * but kept as its own toggle (rather than folded into isBlockedCreatorSkipEnabled)
@@ -214,6 +232,9 @@ class SettingsRepository(context: Context) {
         private const val KEY_OVERLAY_ENABLED = "overlay_enabled"
         private const val KEY_DIAGNOSTIC_LOGGING_ENABLED = "diagnostic_logging_enabled"
         private const val KEY_LIVE_STREAM_SKIP_ENABLED = "live_stream_skip_enabled"
+        private const val KEY_REPEAT_VIEW_SKIP_ENABLED = "repeat_view_skip_enabled"
+        private const val KEY_REPEAT_VIEW_LIMIT = "repeat_view_limit"
+        const val DEFAULT_REPEAT_VIEW_LIMIT = 3
         private const val KEY_SUBJECT_BOOST_ENABLED = "subject_boost_enabled"
         private const val KEY_SUBJECT_KEYWORDS = "subject_keywords"
         private const val KEY_LIKE_OPTION_KEYWORDS = "like_option_keywords"

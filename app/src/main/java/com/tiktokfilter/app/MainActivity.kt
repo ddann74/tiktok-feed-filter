@@ -21,6 +21,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.tiktokfilter.app.databinding.ActivityMainBinding
 import com.tiktokfilter.app.diagnostics.DiagnosticLog
+import com.tiktokfilter.app.filter.RepeatViewRepository
 import java.io.File
 
 class MainActivity : AppCompatActivity() {
@@ -29,6 +30,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var settingsRepository: SettingsRepository
     private lateinit var statsRepository: StatsRepository
     private lateinit var diagnosticLog: DiagnosticLog
+    private lateinit var repeatViewRepository: RepeatViewRepository
 
     private var isSelectModeActive = false
     private val selectedCreators = mutableSetOf<String>()
@@ -49,6 +51,7 @@ class MainActivity : AppCompatActivity() {
         settingsRepository = SettingsRepository(this)
         statsRepository = StatsRepository(this)
         diagnosticLog = DiagnosticLog(this, settingsRepository)
+        repeatViewRepository = RepeatViewRepository(this)
 
         requestStoragePermissionIfNeeded()
         setupListeners()
@@ -59,6 +62,8 @@ class MainActivity : AppCompatActivity() {
         binding.diagnosticLoggingSwitch.isChecked = settingsRepository.isDiagnosticLoggingEnabled
         binding.liveStreamSkipSwitch.isChecked = settingsRepository.isLiveStreamSkipEnabled
         binding.subjectFilterSwitch.isChecked = settingsRepository.isSubjectBoostEnabled
+        binding.repeatViewSkipSwitch.isChecked = settingsRepository.isRepeatViewSkipEnabled
+        binding.repeatViewLimitInput.setText(settingsRepository.repeatViewLimit.toString())
         renderAllLists()
         refreshStats()
     }
@@ -97,6 +102,23 @@ class MainActivity : AppCompatActivity() {
         }
         binding.blockedCreatorSkipSwitch.setOnCheckedChangeListener { _, isChecked ->
             settingsRepository.isBlockedCreatorSkipEnabled = isChecked
+        }
+        binding.repeatViewSkipSwitch.setOnCheckedChangeListener { _, isChecked ->
+            settingsRepository.isRepeatViewSkipEnabled = isChecked
+        }
+        binding.saveRepeatViewLimitButton.setOnClickListener {
+            val limit = binding.repeatViewLimitInput.text.toString().trim().toIntOrNull()
+            if (limit == null || limit < 1) {
+                Toast.makeText(this, "Enter a whole number of 1 or more", Toast.LENGTH_SHORT).show()
+                binding.repeatViewLimitInput.setText(settingsRepository.repeatViewLimit.toString())
+                return@setOnClickListener
+            }
+            settingsRepository.repeatViewLimit = limit
+            Toast.makeText(this, "Saved - skipping after $limit view${if (limit == 1) "" else "s"}", Toast.LENGTH_SHORT).show()
+        }
+        binding.resetRepeatViewHistoryButton.setOnClickListener {
+            repeatViewRepository.clear()
+            Toast.makeText(this, "Watch history reset - no video counts as previously viewed", Toast.LENGTH_SHORT).show()
         }
         binding.realBlockSwitch.setOnCheckedChangeListener { _, isChecked ->
             settingsRepository.isRealBlockAutomationEnabled = isChecked
@@ -253,6 +275,7 @@ class MainActivity : AppCompatActivity() {
         binding.creatorsSkippedText.text = "Creators skipped: ${statsRepository.creatorsSkipped}"
         binding.audioExtractedText.text = "Audio saved: ${statsRepository.audioExtractionsCompleted}"
         binding.subjectBoostLikesText.text = "Subject Boost auto-likes: ${statsRepository.subjectBoostLikes}"
+        binding.repeatViewsSkippedText.text = "Repeat views skipped: ${statsRepository.repeatViewsSkipped}"
         val log = statsRepository.recentLog()
         binding.activityLogText.text = if (log.isEmpty()) "No activity yet" else log.joinToString("\n")
 

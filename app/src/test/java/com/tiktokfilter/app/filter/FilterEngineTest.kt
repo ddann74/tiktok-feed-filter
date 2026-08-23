@@ -342,4 +342,110 @@ class FilterEngineTest {
             FilterEngine.isLiveStream(listOf("@some_creator", "a normal caption", "128 comments"), listOf("LIVE"))
         )
     }
+
+    // --- videoFingerprint / repeat-view skip ---------------------------------------
+
+    @Test
+    fun `videoFingerprint combines the creator identity with a caption proxy`() {
+        val fingerprint = FilterEngine.videoFingerprint(
+            listOf(
+                "HistoryEgghead profile", "Follow HistoryEgghead", "Like video 13.7K likes",
+                "HistoryEgghead", "For 3,000 years they were cherished. Then the 1800s happened.", "Video"
+            )
+        )
+        assertEquals("HistoryEgghead|For 3,000 years they were cherished. Then the 1800s happened.", fingerprint)
+    }
+
+    @Test
+    fun `videoFingerprint returns null when no creator identity can be found at all`() {
+        // Deliberately NOT falling back to some other text the way the transient same-tick
+        // dedup elsewhere does - a wrong fingerprint here would corrupt a PERSISTED count.
+        val fingerprint = FilterEngine.videoFingerprint(listOf("a normal caption", "128 comments"))
+        assertNull(fingerprint)
+    }
+
+    @Test
+    fun `videoFingerprint differs for two different videos from the same creator`() {
+        val first = FilterEngine.videoFingerprint(
+            listOf("SomeCreator profile", "Follow SomeCreator", "SomeCreator", "First video's caption", "Video")
+        )
+        val second = FilterEngine.videoFingerprint(
+            listOf("SomeCreator profile", "Follow SomeCreator", "SomeCreator", "A completely different caption", "Video")
+        )
+        assertEquals(false, first == second)
+    }
+
+    @Test
+    fun `videoFingerprint is scoped to the current video, not a preloaded one`() {
+        // Same current-video-scoping guarantee evaluate()/matchesSubject already have,
+        // extended to the fingerprint used for repeat-view tracking.
+        val fingerprint = FilterEngine.videoFingerprint(
+            listOf(
+                "CurrentCreator profile", "Follow CurrentCreator", "CurrentCreator", "Current video's caption", "Video",
+                "NextCreator profile", "Follow NextCreator", "NextCreator", "Next video's caption"
+            )
+        )
+        assertEquals("CurrentCreator|Current video's caption", fingerprint)
+    }
+
+    @Test
+    fun `repeat-view skip fires once the count reaches the configured limit`() {
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf("@brand", "a normal caption"),
+            adKeywordsEnabled = false,
+            adKeywords = emptyList(),
+            blockedCreatorsEnabled = false,
+            blockedCreators = emptySet(),
+            repeatViewSkipEnabled = true,
+            repeatViewCount = 3,
+            repeatViewLimit = 3
+        )
+        assertEquals(SkipReason.REPEAT_VIEW, decision?.reason)
+        assertEquals("3 views", decision?.detail)
+    }
+
+    @Test
+    fun `repeat-view skip does not fire below the configured limit`() {
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf("@brand", "a normal caption"),
+            adKeywordsEnabled = false,
+            adKeywords = emptyList(),
+            blockedCreatorsEnabled = false,
+            blockedCreators = emptySet(),
+            repeatViewSkipEnabled = true,
+            repeatViewCount = 2,
+            repeatViewLimit = 3
+        )
+        assertNull(decision)
+    }
+
+    @Test
+    fun `repeat-view skip never fires while disabled even at or above the limit`() {
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf("@brand", "a normal caption"),
+            adKeywordsEnabled = false,
+            adKeywords = emptyList(),
+            blockedCreatorsEnabled = false,
+            blockedCreators = emptySet(),
+            repeatViewSkipEnabled = false,
+            repeatViewCount = 10,
+            repeatViewLimit = 3
+        )
+        assertNull(decision)
+    }
+
+    @Test
+    fun `blocked creator and ad both take priority over a repeat-view skip on the same video`() {
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf("@annoying_account", "Sponsored"),
+            adKeywordsEnabled = true,
+            adKeywords = defaultAdKeywords,
+            blockedCreatorsEnabled = true,
+            blockedCreators = setOf("annoying_account"),
+            repeatViewSkipEnabled = true,
+            repeatViewCount = 99,
+            repeatViewLimit = 3
+        )
+        assertEquals(SkipReason.BLOCKED_CREATOR, decision?.reason)
+    }
 }

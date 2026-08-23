@@ -1,9 +1,10 @@
 package com.tiktokfilter.app.filter
 
-enum class SkipReason { AD, BLOCKED_CREATOR }
+enum class SkipReason { AD, BLOCKED_CREATOR, REPEAT_VIEW }
 
-/** [detail] is the creator handle for BLOCKED_CREATOR or the matched keyword for AD -
-  * both go straight into the activity log so a skip is explainable after the fact. */
+/** [detail] is the creator handle for BLOCKED_CREATOR, the matched keyword for AD, or
+  * "N views" for REPEAT_VIEW - all three go straight into the activity log so a skip is
+  * explainable after the fact. */
 data class SkipDecision(val reason: SkipReason, val detail: String)
 
 /**
@@ -40,13 +41,27 @@ object FilterEngine {
     // tree, after the current one's).
     private val profileContentDescriptionRegex = Regex("^(.+) profile$", RegexOption.IGNORE_CASE)
 
+    // Known template shapes [videoFingerprint] excludes when guessing at the video's own
+    // caption text - confirmed real wording from diagnostic logs / test fixtures ("Like
+    // video 13.7K likes", "128 comments"), not a caption itself.
+    private val likeCountRegex = Regex("^Like video .+ likes?$", RegexOption.IGNORE_CASE)
+    private val commentCountRegex = Regex("^[\\d,.]+[A-Za-z]* comments?$", RegexOption.IGNORE_CASE)
+
     fun evaluate(
         screenTexts: List<String>,
         adKeywordsEnabled: Boolean,
         adKeywords: List<String>,
         blockedCreatorsEnabled: Boolean,
         // Expected already-normalized (lowercase, no leading '@') - see normalizeHandle.
-        blockedCreators: Set<String>
+        blockedCreators: Set<String>,
+        // Repeat-view skip: the caller (TikTokFilterService) looks up how many times
+        // [videoFingerprint] has already recorded a genuine (non-skipped) viewing of this
+        // exact video, via RepeatViewRepository, and passes it in here - this function
+        // stays pure/testable rather than reaching into SharedPreferences itself.
+        // Defaulted so every existing caller/test compiles unchanged.
+        repeatViewSkipEnabled: Boolean = false,
+        repeatViewCount: Int = 0,
+        repeatViewLimit: Int = 3
     ): SkipDecision? {
         // TikTok preloads several videos ahead, and every one of their nodes shows up in
         // the same flat text list [TikTokFilterService.collectText] produces - a real
@@ -73,6 +88,13 @@ object FilterEngine {
             if (matchedKeyword != null) {
                 return SkipDecision(SkipReason.AD, matchedKeyword)
             }
+        }
+        // Checked last: [videoFingerprint] is the least certain signal of the three (it
+        // depends on a caption-text heuristic on top of the same creator-identity lookup
+        // ad/blocked-creator already rely on), so it only gets a say once neither of the
+        // more specific reasons already decided this video.
+        if (repeatViewSkipEnabled && repeatViewCount >= repeatViewLimit) {
+            return SkipDecision(SkipReason.REPEAT_VIEW, "$repeatViewCount views")
         }
         return null
     }
@@ -124,6 +146,45 @@ object FilterEngine {
 
     fun normalizeHandle(handle: String): String =
         handle.trim().removePrefix("@").lowercase()
+
+    /** Best-effort per-VIDEO fingerprint for repeat-view tracking (see
+      * RepeatViewRepository) - unlike [extractHandle], which only identifies the creator
+      * (the same for every video they've ever posted), this needs to tell two DIFFERENT
+      * videos from the same creator apart too. Combines the creator identity with a proxy
+      * for the video's own caption: the longest remaining text in the current video's
+      * scoped block that doesn't match one of TikTok's known template shapes (a profile/
+      * follow node, a like/comment count, the literal "Video" marker, or the creator's own
+      * name/handle repeated standalone - all confirmed template patterns, not a real
+      * caption, from the same real diagnostic logs [profileContentDescriptionRegex] is
+      * based on). Longest-string-wins is a heuristic, not a certainty - no field TikTok
+      * exposes is documented as "the caption, guaranteed" - but it's the same kind of
+      * best-effort signal every other heuristic in this file already is.
+      *
+      * Returns null if no creator identity can be found at all ([extractHandle] returns
+      * null) - deliberately NOT falling back to some other value the way
+      * TikTokFilterService's transient same-tick dedup does (see the app's own premortem,
+      * docs/PRD.md ss4a-P3): a wrong fingerprint here would corrupt a PERSISTED count
+      * across the user's whole history, not just risk one duplicate action in the moment. */
+    fun videoFingerprint(screenTexts: List<String>): String? {
+        val handle = extractHandle(screenTexts) ?: return null
+        val visibleVideoTexts = currentVideoTexts(screenTexts)
+        val captionProxy = visibleVideoTexts
+            .filterNot { isKnownTemplateText(it, handle) }
+            .maxByOrNull { it.length }
+            .orEmpty()
+        return "$handle|$captionProxy"
+    }
+
+    private fun isKnownTemplateText(text: String, handle: String): Boolean {
+        val trimmed = text.trim()
+        return trimmed.equals(handle.trim(), ignoreCase = true) ||
+            profileContentDescriptionRegex.matches(trimmed) ||
+            trimmed.startsWith("Follow ", ignoreCase = true) ||
+            handleRegex.matches(trimmed) ||
+            likeCountRegex.matches(trimmed) ||
+            commentCountRegex.matches(trimmed) ||
+            trimmed.equals("Video", ignoreCase = true)
+    }
 
     /** Whether the current screen looks like a TikTok Live room rather than a normal
       * FYP video - a plain substring match against [liveIndicatorKeywords] (default:
