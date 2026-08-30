@@ -1,28 +1,65 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fillViewport="true"
+    android:orientation="vertical"
     android:background="#1a1a1a">
 
-<LinearLayout
-    android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="16dp">
-
-    <TextView
+    <!-- Fixed (non-scrolling) quick-jump bar - with 12+ sections stacked in one long
+         scroll below, reaching Diagnostics at the bottom used to mean scrolling past
+         everything else every single time. Stays on screen while mainScrollView scrolls
+         underneath it, wired up in MainActivity.setupQuickJumpNav(). -->
+    <HorizontalScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="TikTok Feed Filter"
-        android:textSize="24sp"
-        android:textColor="#00c853"
-        android:textStyle="bold"
-        android:gravity="center"
-        android:layout_marginBottom="16dp" />
+        android:background="#101010"
+        android:scrollbars="none">
 
-    <TextView
-        android:id="@+id/statusText"
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:padding="8dp">
+
+            <TextView android:id="@+id/navChipFilters" style="@style/QuickJumpChip" android:text="Filters" />
+            <TextView android:id="@+id/navChipBlockedCreators" style="@style/QuickJumpChip" android:text="Blocked" />
+            <TextView android:id="@+id/navChipAdKeywords" style="@style/QuickJumpChip" android:text="Ad Keywords" />
+            <TextView android:id="@+id/navChipSubjectBoost" style="@style/QuickJumpChip" android:text="Subject Boost" />
+            <TextView android:id="@+id/navChipTargetPackages" style="@style/QuickJumpChip" android:text="Packages" />
+            <TextView android:id="@+id/navChipRealTikTok" style="@style/QuickJumpChip" android:text="Block/Download" />
+            <TextView android:id="@+id/navChipLiveStreams" style="@style/QuickJumpChip" android:text="Live" />
+            <TextView android:id="@+id/navChipActivity" style="@style/QuickJumpChip" android:text="Activity" />
+            <TextView android:id="@+id/navChipDiagnostics" style="@style/QuickJumpChip" android:text="Diagnostics" />
+
+        </LinearLayout>
+
+    </HorizontalScrollView>
+
+    <ScrollView
+        android:id="@+id/mainScrollView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="TikTok Feed Filter"
+            android:textSize="24sp"
+            android:textColor="#00c853"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:id="@+id/statusText"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Accessibility Service: checking..."
@@ -43,6 +80,7 @@
         android:layout_marginBottom="20dp" />
 
     <TextView
+        android:id="@+id/sectionFilters"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Filters"
@@ -178,6 +216,7 @@
     </LinearLayout>
 
     <TextView
+        android:id="@+id/sectionBlockedCreators"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Blocked Creators"
@@ -265,6 +304,7 @@
         android:layout_marginBottom="20dp" />
 
     <TextView
+        android:id="@+id/sectionAdKeywords"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Ad Keywords"
@@ -319,6 +359,7 @@
         android:layout_marginBottom="20dp" />
 
     <TextView
+        android:id="@+id/sectionSubjectBoost"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Subject Boost"
@@ -443,6 +484,7 @@
         android:layout_marginBottom="20dp" />
 
     <TextView
+        android:id="@+id/sectionTargetPackages"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Target App Packages"
@@ -497,6 +539,7 @@
         android:layout_marginBottom="20dp" />
 
     <TextView
+        android:id="@+id/sectionRealTikTok"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Real TikTok Integration"
@@ -746,6 +789,7 @@
         android:layout_marginBottom="16dp" />
 
     <TextView
+        android:id="@+id/sectionLiveStreams"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Live Streams"
@@ -785,6 +829,60 @@
             android:layout_height="wrap_content" />
 
     </LinearLayout>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Live Indicator Keywords"
+        android:textSize="14sp"
+        android:textColor="#cccccc"
+        android:textStyle="bold"
+        android:layout_marginBottom="4dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="What FilterEngine.isLiveStream looks for to decide a screen is a Live room at all - just &quot;LIVE&quot; by default, TikTok's own badge. If Live detection is misfiring (e.g. a normal video's &quot;Live now&quot; preview rail getting mistaken for actually being inside a Live room), tune this list."
+        android:textColor="#888888"
+        android:textSize="11sp"
+        android:layout_marginBottom="8dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="8dp">
+
+        <EditText
+            android:id="@+id/liveIndicatorKeywordInput"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:hint="LIVE"
+            android:textColor="#ffffff"
+            android:textColorHint="#888888"
+            android:background="#2a2a2a"
+            android:padding="8dp"
+            android:singleLine="true"
+            android:layout_marginEnd="8dp" />
+
+        <Button
+            android:id="@+id/addLiveIndicatorKeywordButton"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:text="Add"
+            android:textColor="#ffffff"
+            android:textAllCaps="false"
+            android:backgroundTint="#00c853" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/liveIndicatorKeywordsContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginBottom="20dp" />
 
     <TextView
         android:layout_width="match_parent"
@@ -833,6 +931,7 @@
         android:layout_marginBottom="20dp" />
 
     <TextView
+        android:id="@+id/sectionActivity"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Activity"
@@ -933,6 +1032,7 @@
         android:layout_marginBottom="20dp" />
 
     <TextView
+        android:id="@+id/sectionDiagnostics"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Diagnostics"
@@ -1015,5 +1115,8 @@
 
     </LinearLayout>
 
+    </LinearLayout>
+
+    </ScrollView>
+
 </LinearLayout>
-</ScrollView>

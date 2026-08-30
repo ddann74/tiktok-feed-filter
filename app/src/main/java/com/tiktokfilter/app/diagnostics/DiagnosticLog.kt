@@ -15,8 +15,10 @@ import java.util.Locale
  * this answers "why", which is what's actually needed to tune a keyword list or
  * report a bug.
  *
- * A no-op unless SettingsRepository.isDiagnosticLoggingEnabled is on (default off),
- * so callers never need to guard calls with their own enabled-check. Written to a
+ * A no-op unless SettingsRepository.isDiagnosticLoggingEnabled is on (default ON as of
+ * 2026-08-23 - see SettingsRepository's own doc for why: two real bugs only got
+ * diagnosed because a log already existed to look at when they happened), so callers
+ * never need to guard calls with their own enabled-check. Written to a
  * plain file in app-private storage rather than SharedPreferences, since entries can
  * include full raw text dumps that don't belong in a preferences store; size-capped
  * so it can't grow unbounded while logging is left on.
