@@ -89,6 +89,9 @@ something else on a guess risked wasted effort in either direction.
       away, not a long scroll.
 - [ ] Item #4 - blocked on clarification (see Open questions). Not
       implemented as speculative work against an unconfirmed feature.
+- [x] CI added so `SkipStreakGuardTest` (and the pre-existing
+      `FilterEngineTest`/`ActionSequenceTest`) actually run somewhere,
+      closing the "not executed in this environment" gap in §4 below.
 
 ## 3. Design
 
@@ -176,18 +179,42 @@ always one tap away.
   padding, `liveIndicatorKeywordsContainer` ID typo) would only surface
   once actually run in Android Studio or on a device.
 
+### 3.4 CI (`.github/workflows/android-build.yml`)
+
+Added after the fact, at the driver's request, once this environment's own
+inability to run the new unit tests became a real gap rather than a
+disclosed limitation. Also found and fixed a **separate, pre-existing bug**
+while setting this up: this repo's Gradle wrapper was incomplete -
+`gradle-wrapper.properties` existed, but `gradlew`, `gradlew.bat`, and
+`gradle/wrapper/gradle-wrapper.jar` did not (confirmed via `git ls-files` -
+never committed at all, same class of gap `dasher-monitor-` had with just
+the jar). Without these, `./gradlew` cannot run at all, in CI or locally -
+fixed by generating a matching Gradle 8.7 wrapper (via system Gradle in an
+isolated directory, to avoid evaluating this project's own
+Android-SDK-dependent `build.gradle.kts`) and verifying the jar actually
+works (`java -classpath gradle-wrapper.jar
+org.gradle.wrapper.GradleWrapperMain --version` reports Gradle 8.7
+correctly) before committing it.
+
+The workflow itself: JDK 17 (required by AGP 8.5.2, confirmed in the root
+`build.gradle.kts`) + `android-actions/setup-android@v3`, then
+`./gradlew test` (runs `FilterEngineTest`, `ActionSequenceTest`, and the
+new `SkipStreakGuardTest`) before `./gradlew assembleDebug`, uploading both
+the debug APK and the JUnit XML results as workflow artifacts. No API keys
+or `local.properties` needed - confirmed via the README's own Privacy
+section that this app makes no network calls at all.
+
 ## 4. Testing / verification approach
 
 Same disclosed limitation as this repo's own `docs/PRD.md` §4: no Android
 SDK, emulator, or TikTok install available in this environment.
 
 - **3.1 (circuit breaker)**: the pure decision logic (`SkipStreakGuard`) is
-  directly unit-testable and has real tests (see PROGRESS.md) - but this
-  environment has no Kotlin/JVM toolchain reachable either (confirmed: no
-  `kotlinc` on PATH), so the tests are written to this repo's existing
-  `FilterEngineTest.kt` conventions but **not executed here** - would run
-  via `./gradlew test` in Android Studio or CI. Disclosed honestly rather
-  than claimed as verified.
+  directly unit-testable and has real tests (see PROGRESS.md) - this
+  environment has no Kotlin/JVM toolchain reachable (confirmed: no
+  `kotlinc` on PATH), so the tests couldn't run here directly. **Closed by
+  §3.4 below**: a GitHub Actions workflow now runs `./gradlew test` on
+  every push, so the tests actually execute, just not in this sandbox.
 - **3.2/3.3 (XML/UI)**: not unit-testable without instrumentation, same as
   every other UI-only item in `docs/PRD.md`. Verified instead by: (a)
   `xml.etree.ElementTree` parsing both changed XML files to confirm

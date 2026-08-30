@@ -90,4 +90,36 @@ through by hand against the pure `recordSkip` logic instead; would run via
 
 **Not done**: item #4 ("pre-screened ads") - no matching feature found in
 history, flagged as an open question (PRD.md §5) rather than guessed at.
-Final PRD §6 boxes (item #4 resolution, user sign-off) remain.
+
+## CI added (2026-08-30, at driver's request)
+
+Requested explicitly after the PR was opened, to close the "tests not
+executed in this environment" gap from the section above.
+
+**Found and fixed a separate, pre-existing bug first**: this repo's Gradle
+wrapper was incomplete - only `gradle-wrapper.properties` was ever
+committed (confirmed via `git ls-files | grep wrapper`); `gradlew`,
+`gradlew.bat`, and `gradle/wrapper/gradle-wrapper.jar` did not exist at
+all. `./gradlew` cannot run without them, in CI or locally. Fixed the same
+way `dasher-monitor-`'s missing `gradle-wrapper.jar` was fixed earlier this
+session: generated a Gradle 8.7 wrapper (matching this repo's own
+`gradle-wrapper.properties`) via system Gradle in an isolated empty
+directory (avoids evaluating this project's own `build.gradle.kts`, which
+needs Android SDK plugins unavailable here), then verified the copied jar
+actually works: `java -classpath gradle/wrapper/gradle-wrapper.jar
+org.gradle.wrapper.GradleWrapperMain --version` correctly downloaded and
+reported "Gradle 8.7" before committing anything.
+
+Added `.github/workflows/android-build.yml`: JDK 17 (AGP 8.5.2 requires
+it) + `android-actions/setup-android@v3`, `./gradlew test` (runs
+`FilterEngineTest`, `ActionSequenceTest`, and the new
+`SkipStreakGuardTest` for real, for the first time) before `./gradlew
+assembleDebug`, uploading the debug APK and JUnit XML results as
+artifacts. Validated the workflow YAML with `yaml.safe_load` before
+committing.
+
+This directly closes PRD.md §4's disclosed "not executed" gap for
+`SkipStreakGuardTest` - the tests still can't run in this sandbox, but now
+run for real on every push via CI.
+
+Final PRD §6 boxes remaining: item #4 resolution, user sign-off.
