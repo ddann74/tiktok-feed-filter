@@ -140,6 +140,42 @@ section chips, followed by the original scrolling content now in its own
 while the content below it scrolls, so Diagnostics (or any section) is
 always one tap away.
 
+## 3a. Premortem (2026-08-30): assume this pass fails again
+
+- **P1 — the circuit breaker mitigates, but doesn't diagnose, the
+  auto-scroll report.** If the real cause is an over-broad Ad Keyword (a
+  short/generic entry substring-matching normal captions) or a genuinely
+  new edge case, the app will now pause for 30s and log a warning every
+  ~8 skips instead of running away forever - a real improvement - but the
+  underlying over-matching is still there, still burning through real
+  videos in bursts, and still needs a diagnostic log to actually fix at
+  the source. If the driver reports "it still happens, just in shorter
+  bursts now," that's this - not a failed fix, an incomplete one, exactly
+  as scoped in §1.2.
+- **P2 — the 8-skips/15s/30s-pause thresholds are unconfirmed against a
+  real device**, same honesty status as every other threshold in this
+  app (`DEFAULT_SPEED_LIMIT_KMH`-style guess, not measured). A genuinely
+  ad-heavy stretch of real TikTok content (several back-to-back ads, which
+  does happen) could trip the breaker on legitimate skips, pausing
+  auto-skip for 30s while ads play through unfiltered - the opposite of
+  what was asked for, in a false-positive case. If this happens often in
+  practice, the fix is loosening `MAX_CONSECUTIVE_SKIPS`/
+  `SKIP_STREAK_WINDOW_MILLIS`, not architecture.
+- **P3 — item #4 remains unresolved and un-investigated beyond the git
+  history search.** If the driver's actual device shows ads getting
+  through with Skip Ads confirmed on (already reported - see the
+  conversation, not yet turned into a diagnostic-log-backed fix), the
+  most likely cause per the README's own confirmed finding is
+  `"Ad starts in"` never matching a genuinely-current video - but this is
+  still a hypothesis, not confirmed against this driver's actual log.
+- **P4 — the quick-jump nav and Live Streams keyword UI are both
+  UI-only changes with zero on-device verification**, same disclosed
+  limitation as every other UI change in this repo's PRDs (no Android
+  SDK/emulator/device reachable from this environment). A layout issue
+  (chip text truncation, `smoothScrollTo` landing slightly off due to
+  padding, `liveIndicatorKeywordsContainer` ID typo) would only surface
+  once actually run in Android Studio or on a device.
+
 ## 4. Testing / verification approach
 
 Same disclosed limitation as this repo's own `docs/PRD.md` §4: no Android
