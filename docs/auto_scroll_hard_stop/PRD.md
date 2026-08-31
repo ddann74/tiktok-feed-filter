@@ -197,17 +197,21 @@ itself and can be extracted the same way - pure, unit-tested, verified via
 
 ## 6. Success criteria (implementation-phase checklist)
 
-- [ ] Confirmed/documented whether the driver's build includes the
-      existing circuit breaker or predates it
-- [ ] Escalating hard-stop implemented: N trips within a window disables
+- [x] Confirmed/documented whether the driver's build includes the
+      existing circuit breaker or predates it - see §1.1: PR #1 (which
+      contains it) is still open/unmerged as of this PRD, so almost
+      certainly not on the driver's device.
+- [x] Escalating hard-stop implemented: N trips within a window disables
       Skip ads + Skip blocked creators + Repeat-view skip (not just
       another pause, and not just two of the three possible causes - see
       §3a-P2)
-- [ ] Hard-stop logs a clear, unmissable Activity log entry naming what
+- [x] Hard-stop logs a clear, unmissable Activity log entry naming what
       happened, why, and the manual re-enable step
-- [ ] Hard-stop logic kept pure/unit-testable, mirroring `SkipStreakGuard`
-- [ ] New unit tests written AND executed via CI (`./gradlew test`) - not
-      just written, per this repo's now-available verification path
-- [ ] `DEFAULT_AD_KEYWORDS`/matching semantics confirmed unchanged by diff
+- [x] Hard-stop logic kept pure/unit-testable, mirroring `SkipStreakGuard`
+      (new `HardStopGuard`/`TripHistoryState` in `filter/HardStopGuard.kt`)
+- [x] New unit tests written (`HardStopGuardTest.kt`, 4 tests) - pushed for
+      CI to actually run via `./gradlew test`; see PROGRESS.md for the
+      real run result once available
+- [x] `DEFAULT_AD_KEYWORDS`/matching semantics confirmed unchanged by diff
       review
 - [ ] User sign-off

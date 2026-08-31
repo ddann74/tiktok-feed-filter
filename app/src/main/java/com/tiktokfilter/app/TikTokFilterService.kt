@@ -9,9 +9,11 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.tiktokfilter.app.diagnostics.DiagnosticLog
 import com.tiktokfilter.app.filter.FilterEngine
+import com.tiktokfilter.app.filter.HardStopGuard
 import com.tiktokfilter.app.filter.RepeatViewRepository
 import com.tiktokfilter.app.filter.SkipStreakGuard
 import com.tiktokfilter.app.filter.SkipStreakState
+import com.tiktokfilter.app.filter.TripHistoryState
 import com.tiktokfilter.app.overlay.OverlayController
 import com.tiktokfilter.app.tiktokactions.DownloadMode
 import com.tiktokfilter.app.tiktokactions.TikTokActionCoordinator
@@ -57,6 +59,10 @@ class TikTokFilterService : AccessibilityService() {
     // actually progressing normally, not stuck in a skip loop.
     private var skipStreakState = SkipStreakState()
     private var circuitBreakerTrippedUntilMillis = 0L
+    // Escalation on top of the circuit breaker above - see HardStopGuard's own doc and
+    // docs/auto_scroll_hard_stop/PRD.md. A pause that repeats forever isn't "stopped",
+    // which is what was actually reported after the circuit breaker alone shipped.
+    private var tripHistoryState = TripHistoryState()
 
     private val mainHandler = Handler(Looper.getMainLooper())
     // A single reusable Runnable so scheduling it again (or cancelling it) always
@@ -231,6 +237,34 @@ class TikTokFilterService : AccessibilityService() {
                 "what kept matching."
             statsRepository.recordEvent(warning)
             diagnosticLog.log("FILTER", "CIRCUIT BREAKER TRIPPED - $warning")
+
+            // Escalation: this pause-and-resume is itself supposed to be rare. If it
+            // keeps happening, the pause isn't fixing anything and "paused" isn't what
+            // was actually asked for - see docs/auto_scroll_hard_stop/PRD.md.
+            val (updatedTripHistory, hardStop) = HardStopGuard.recordTrip(
+                tripHistoryState, now, ESCALATION_WINDOW_MILLIS, MAX_TRIPS_IN_ESCALATION_WINDOW
+            )
+            tripHistoryState = if (hardStop) TripHistoryState() else updatedTripHistory
+            if (hardStop) {
+                // A real, persisted stop - not another pause. All three toggles that can
+                // actually produce a SkipDecision (see FilterEngine.evaluate/SkipReason),
+                // not just ad/blocked-creator - see docs/auto_scroll_hard_stop/PRD.md
+                // §3a-P2 for why disabling only two of the three would leave this
+                // silently ineffective if the third is what's actually recurring.
+                settingsRepository.isAdSkipEnabled = false
+                settingsRepository.isBlockedCreatorSkipEnabled = false
+                settingsRepository.isRepeatViewSkipEnabled = false
+                val hardStopWarning = "AUTO-SKIP TURNED OFF: the pause-and-resume safety " +
+                    "net above tripped $MAX_TRIPS_IN_ESCALATION_WINDOW times within " +
+                    "${ESCALATION_WINDOW_MILLIS / 60_000} minutes, meaning something is " +
+                    "still causing a runaway skip pattern even after pausing. Skip ads, " +
+                    "Skip blocked creators, and Repeat-view skip have all been turned OFF " +
+                    "- turn them back on in Filters once you've checked what's wrong. To " +
+                    "help find the actual cause: make sure Diagnostic Logging is on " +
+                    "(Diagnostics), reproduce this, and share the log."
+                statsRepository.recordEvent(hardStopWarning)
+                diagnosticLog.log("FILTER", "HARD STOP - $hardStopWarning")
+            }
             return
         }
         skipStreakState = updatedStreak
@@ -360,5 +394,12 @@ class TikTokFilterService : AccessibilityService() {
         private const val MAX_CONSECUTIVE_SKIPS = 8
         private const val SKIP_STREAK_WINDOW_MILLIS = 15_000L
         private const val CIRCUIT_BREAKER_PAUSE_MILLIS = 30_000L
+        // Escalation on top of the above (see HardStopGuard, docs/auto_scroll_hard_stop/
+        // PRD.md) - UNCONFIRMED, same honesty status as every other threshold in this
+        // app. 3 trips within 5 minutes means the pause-and-resume cycle above already
+        // happened 3 times and did NOT fix itself - a driver reporting "still auto
+        // scrolling" after the circuit breaker shipped is exactly this pattern.
+        private const val MAX_TRIPS_IN_ESCALATION_WINDOW = 3
+        private const val ESCALATION_WINDOW_MILLIS = 5 * 60_000L
     }
 }
