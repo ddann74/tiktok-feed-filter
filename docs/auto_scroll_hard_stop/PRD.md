@@ -97,17 +97,22 @@ within 5 minutes - UNCONFIRMED reasonable threshold, same honesty status
 as every other one in this app). On the Nth trip in that window, instead
 of just pausing again:
 
-- Turn **Skip ads** and **Skip blocked creators** off entirely
-  (`SettingsRepository.isAdSkipEnabled` / `isBlockedCreatorSkipEnabled` set
-  to `false`, not just an in-memory pause) - a real stop, survives the
-  service restarting, and matches exactly what "stopped" means to a driver
-  checking Setup afterward.
+- Turn **Skip ads**, **Skip blocked creators**, AND **Repeat-view skip**
+  off entirely (`SettingsRepository.isAdSkipEnabled` /
+  `isBlockedCreatorSkipEnabled` / `isRepeatViewSkipEnabled` set to `false`,
+  not just an in-memory pause) - a real stop, survives the service
+  restarting, and matches exactly what "stopped" means to a driver
+  checking Setup afterward. All three, not just the first two - see §3a-P2:
+  a streak can be driven by any `SkipReason` `FilterEngine.evaluate` can
+  return, and disabling only two of the three toggles would leave the
+  hard stop silently ineffective if the third is what's actually recurring.
 - Log a maximally visible warning to the Activity log (not buried) naming
   the fact that auto-skip was disabled automatically, why, and that
   turning it back on is a manual step in **Filters**.
-- Do NOT auto-disable Subject Boost, repeat-view skip, or the Block/
-  Download automations - only the two toggles actually implicated in this
-  failure mode.
+- Do NOT auto-disable Subject Boost or the Block/Download automations -
+  neither can produce a `SkipDecision` at all (Subject Boost only likes,
+  never skips - see its own doc in `SettingsRepository`), so neither is
+  implicated in this failure mode.
 
 ### 3.2 Making the trigger double as the diagnostic ask
 
@@ -116,6 +121,56 @@ to do next: turn on/confirm Diagnostic Logging is on (already default),
 reproduce the issue if it happens again, and share the log - the same
 "tell them what evidence would actually fix this" pattern used everywhere
 else in this repo's PRDs, rather than shipping a guess.
+
+## 3a. Premortem (2026-08-30): assume this pass fails again
+
+- **P1 — the escalation state is in-memory, so an OS process kill silently
+  defeats the whole design.** `SkipStreakGuard`'s streak state and the new
+  trip-counting-within-a-window state both live as fields on the running
+  `TikTokFilterService` instance. If Android (or an aggressive OEM battery
+  manager - a real, confirmed issue in the sibling `dasher-monitor-` app's
+  `docs/watchdog_reliability/` investigation this same session) kills and
+  restarts the accessibility service between trips, the trip counter resets
+  to zero. A driver whose device does this could see the pause-then-resume
+  cycle repeat indefinitely and NEVER reach the hard stop - the exact
+  failure this PRD exists to close, silently reopened by something outside
+  this PRD's own code. Not fixed here (would need persisting trip count to
+  `SharedPreferences`, a real design question, not a one-line fix) -
+  flagged as a real risk, not solved.
+- **P2 — disabling only Skip ads + Skip blocked creators doesn't cover
+  every path that can trigger the circuit breaker.** `FilterEngine.evaluate`
+  can also return a `REPEAT_VIEW` decision (if the driver has Repeat-View
+  Skip turned on - off by default, but not guaranteed off). The current
+  §3.1 design hard-codes disabling only the ad/blocked-creator toggles; if
+  the actual runaway is being driven by repeat-view skip instead, the hard
+  stop would fire, disable the wrong two toggles, and the runaway would
+  continue completely unaffected. Needs the hard-stop to either track which
+  `SkipReason` is actually recurring and disable the matching toggle(s), or
+  - simpler, and probably safer given "make it actually stop" is the goal
+  - disable all three skip toggles on trip, not just two. Recommend the
+  latter in §3 unless the driver wants finer granularity (see open
+  questions).
+- **P3 — 24+ real skips can still happen before the hard stop ever fires.**
+  3 trips × 8 skips/trip = up to 24 rapid skips (roughly 2-3 minutes of
+  real content) before the escalation kicks in. If the underlying cause is
+  aggressive (e.g. a one-character keyword matching nearly everything),
+  "stopped" might still feel too slow even once this ships - the
+  thresholds in §5.1 may need to come down, not just exist.
+- **P4 — auto-disabling Skip ads is itself a surprising, silent-feeling
+  side effect if the driver doesn't read the Activity log.** A driver who
+  doesn't check Activity could reasonably conclude days later that "ad
+  skipping just stopped working" and file that as a NEW, separate bug
+  report, not realizing it was this safety mechanism protecting them
+  earlier. The Activity log line (§3.2) has to be genuinely unmissable, not
+  just present - worth considering a one-time Toast or notification in
+  addition to the log line if driver feedback shows the log alone isn't
+  enough.
+- **P5 — this still doesn't fix anything if the real cause turns out to be
+  outside ad/blocked-creator matching entirely** (e.g. a genuinely new
+  video-transition edge case in `TikTokFilterService` itself, unrelated to
+  any keyword list). §3.1's hard stop would still correctly stop the
+  symptom either way (once P2 is addressed), but the PRD's own §1.3 stands:
+  the actual mechanism stays unconfirmed without a real diagnostic log.
 
 ## 4. Testing / verification approach
 
@@ -145,7 +200,9 @@ itself and can be extracted the same way - pure, unit-tested, verified via
 - [ ] Confirmed/documented whether the driver's build includes the
       existing circuit breaker or predates it
 - [ ] Escalating hard-stop implemented: N trips within a window disables
-      Skip ads + Skip blocked creators (not just another pause)
+      Skip ads + Skip blocked creators + Repeat-view skip (not just
+      another pause, and not just two of the three possible causes - see
+      §3a-P2)
 - [ ] Hard-stop logs a clear, unmissable Activity log entry naming what
       happened, why, and the manual re-enable step
 - [ ] Hard-stop logic kept pure/unit-testable, mirroring `SkipStreakGuard`
