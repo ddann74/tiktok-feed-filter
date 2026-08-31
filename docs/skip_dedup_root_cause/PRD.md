@@ -173,6 +173,6 @@ PRD's own investigation found AND the new one found here.
       unaffected by a changing like/comment count; unchanged behavior when
       `extractHandle` succeeds; returns null only when truly nothing to
       identify by
-- [ ] Tests pushed and confirmed GREEN via the real CI run (not just
+- [x] Tests pushed and confirmed GREEN via the real CI run (not just
       written) - closes `docs/PRD.md` §4a-P3 as well as this PRD
 - [ ] User sign-off

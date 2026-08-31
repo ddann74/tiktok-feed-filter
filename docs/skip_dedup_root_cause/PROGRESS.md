@@ -56,5 +56,14 @@ limitation as every other PRD here).
 
 ## Verification
 
-Pushed to PR #1's branch for the real CI to execute the new tests -
-result recorded once confirmed (see next entry).
+Pushed to PR #1's branch for the real CI to execute the new tests.
+
+**Confirmed green**: both `build` check runs on commit `38e6e76`
+completed with `conclusion: success`
+(https://github.com/ddann74/tiktok-feed-filter/actions/runs/33396348855,
+completed 2026-08-31T13:20:55Z) - `./gradlew test` (including the 5 new
+`videoIdentity` tests, plus every pre-existing test in the suite) and
+`./gradlew assembleDebug` both passed. PR #1's `mergeable_state` is
+`clean`.
+
+Remaining PRD §6 box: user sign-off.
