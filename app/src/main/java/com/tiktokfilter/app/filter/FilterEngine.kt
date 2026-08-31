@@ -154,6 +154,42 @@ object FilterEngine {
     fun normalizeHandle(handle: String): String =
         handle.trim().removePrefix("@").lowercase()
 
+    /** Stable-enough "is this the same video/screen as last time" identity for
+      * TikTokFilterService's skip and Subject-Boost-auto-like duplicate-action guards.
+      * Prefers the real creator identity ([extractHandle]) exactly as before - no change
+      * when that succeeds. When it fails (TikTok didn't render a "<name> profile" node
+      * this read), the OLD fallback used here was `texts.firstOrNull()` - whatever string
+      * happened to be first in a full-screen traversal. That single field is not
+      * guaranteed stable across two reads of the exact same still-on-screen video (a
+      * re-layout, a lazily-populated chrome element, anything that isn't the video
+      * itself changing) - CONFIRMED REAL BUG this fixes: an unstable fallback defeats the
+      * "still transitioning, don't skip again" duplicate guard, letting the SAME stuck
+      * video (performSkipGesture is a fire-and-forget dispatchGesture call, never
+      * confirmed to have actually advanced TikTok) get re-skipped repeatedly - rapid,
+      * uncontrollable-looking swiping on what may be ONE video, not evidence of many
+      * different real matches. This also resolves docs/PRD.md ss4a-P3's OPPOSITE-direction
+      * concern (a fallback that's wrongly STABLE across two different videos, silently
+      * suppressing a real skip) better than that PRD's own "drop the fallback" suggestion
+      * would have - dropping it entirely would have made THIS bug worse, not better.
+      * Uses the full current-video-scoped text (already-existing [currentVideoTexts],
+      * same scoping [evaluate]/[videoFingerprint] use) rather than one arbitrary field -
+      * far less likely to coincidentally collide between two different videos, and
+      * stable across re-reads of an unchanged screen. Filters out the same known
+      * template shapes [videoFingerprint] does ([isKnownTemplateText], no handle to
+      * compare against here since [extractHandle] already failed) - not just
+      * like/comment counts - so two different, genuinely captionless videos don't
+      * collapse to the same identity just because their only remaining scoped text is a
+      * generic marker like "Video" - the same class of collision
+      * [videoFingerprint]'s own "CONFIRMED REAL BUG" doc already covers, closed here
+      * too rather than partially. */
+    fun videoIdentity(screenTexts: List<String>): String? {
+        extractHandle(screenTexts)?.let { return it }
+        val scoped = currentVideoTexts(screenTexts)
+            .filterNot { isKnownTemplateText(it, handle = null) }
+        if (scoped.isEmpty()) return null
+        return scoped.joinToString("|")
+    }
+
     /** Best-effort per-VIDEO fingerprint for repeat-view tracking (see
       * RepeatViewRepository) - unlike [extractHandle], which only identifies the creator
       * (the same for every video they've ever posted), this needs to tell two DIFFERENT
@@ -198,9 +234,13 @@ object FilterEngine {
         return "$handle|$captionProxy"
     }
 
-    private fun isKnownTemplateText(text: String, handle: String): Boolean {
+    /** [handle] is null when there's no real creator identity to compare against (see
+      * [videoIdentity], called when [extractHandle] already failed) - every other check
+      * here is independent of the handle anyway, so this still filters out the rest of
+      * TikTok's known chrome/template text without one. */
+    private fun isKnownTemplateText(text: String, handle: String?): Boolean {
         val trimmed = text.trim()
-        return trimmed.equals(handle.trim(), ignoreCase = true) ||
+        return (handle != null && trimmed.equals(handle.trim(), ignoreCase = true)) ||
             profileContentDescriptionRegex.matches(trimmed) ||
             trimmed.startsWith("Follow ", ignoreCase = true) ||
             handleRegex.matches(trimmed) ||

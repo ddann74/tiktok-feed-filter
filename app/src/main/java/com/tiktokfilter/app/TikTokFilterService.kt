@@ -9,7 +9,11 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.tiktokfilter.app.diagnostics.DiagnosticLog
 import com.tiktokfilter.app.filter.FilterEngine
+import com.tiktokfilter.app.filter.HardStopGuard
 import com.tiktokfilter.app.filter.RepeatViewRepository
+import com.tiktokfilter.app.filter.SkipStreakGuard
+import com.tiktokfilter.app.filter.SkipStreakState
+import com.tiktokfilter.app.filter.TripHistoryState
 import com.tiktokfilter.app.overlay.OverlayController
 import com.tiktokfilter.app.tiktokactions.DownloadMode
 import com.tiktokfilter.app.tiktokactions.TikTokActionCoordinator
@@ -50,6 +54,15 @@ class TikTokFilterService : AccessibilityService() {
     // wrong repeat-view count would be a PERSISTED mistake, not just a one-off in-the-
     // moment one (see RepeatViewRepository's own doc).
     private var lastSeenVideoFingerprint: String? = null
+    // Runaway auto-skip circuit breaker - see SkipStreakGuard's own doc. Reset to a fresh
+    // streak on any genuine (non-skipped) view, since that's real evidence browsing is
+    // actually progressing normally, not stuck in a skip loop.
+    private var skipStreakState = SkipStreakState()
+    private var circuitBreakerTrippedUntilMillis = 0L
+    // Escalation on top of the circuit breaker above - see HardStopGuard's own doc and
+    // docs/auto_scroll_hard_stop/PRD.md. A pause that repeats forever isn't "stopped",
+    // which is what was actually reported after the circuit breaker alone shipped.
+    private var tripHistoryState = TripHistoryState()
 
     private val mainHandler = Handler(Looper.getMainLooper())
     // A single reusable Runnable so scheduling it again (or cancelling it) always
@@ -126,6 +139,14 @@ class TikTokFilterService : AccessibilityService() {
             root.recycle()
             return
         }
+        // The circuit breaker's pause, once tripped below - reads the same as the cooldown
+        // above (auto-skip briefly does nothing) but for a much longer window, and only
+        // after a genuinely excessive streak, not every normal skip.
+        if (now < circuitBreakerTrippedUntilMillis) {
+            @Suppress("DEPRECATION")
+            root.recycle()
+            return
+        }
 
         val texts = mutableListOf<String>()
         collectText(root, texts)
@@ -153,6 +174,9 @@ class TikTokFilterService : AccessibilityService() {
             repeatViewLimit = settingsRepository.repeatViewLimit
         )
         if (decision == null) {
+            // A genuine, non-skipped view - real evidence browsing is progressing
+            // normally, not stuck in a skip loop, so any in-progress skip streak is stale.
+            skipStreakState = SkipStreakState()
             diagnosticLog.log("FILTER", "no match - live=$isLive - texts=$texts")
             // Counts as one genuine view - see lastSeenVideoFingerprint's own field
             // comment for why this only fires once per real transition into this video,
@@ -184,16 +208,67 @@ class TikTokFilterService : AccessibilityService() {
             diagnosticLog.log("FILTER", "${decision.reason} matched \"${decision.detail}\" on a Live stream but live-skip is disabled - texts=$texts")
             return
         }
-        // A best-effort "which video is this" fingerprint - the creator's display name
-        // when one can be found, same identity FilterEngine.extractHandle already relies
-        // on elsewhere. If TikTok is still transitioning out the video we just skipped,
-        // this will still read as that same video rather than the next one, and skipping
-        // it again would be a duplicate, not a new decision.
-        val videoIdentity = FilterEngine.extractHandle(texts) ?: texts.firstOrNull()
+        // A best-effort "which video is this" identity - see FilterEngine.videoIdentity's
+        // own doc for why this is no longer a raw `extractHandle(...) ?: texts.firstOrNull()`
+        // fallback: that pattern was CONFIRMED to let a stuck video (one that didn't
+        // actually advance after performSkipGesture) get re-skipped repeatedly, which is
+        // the actual mechanism behind a driver-reported "auto scrolling out of control"
+        // incident - see docs/skip_dedup_root_cause/PRD.md.
+        val videoIdentity = FilterEngine.videoIdentity(texts)
         if (videoIdentity != null && videoIdentity == lastSkippedVideoIdentity) {
             diagnosticLog.log("FILTER", "duplicate skip suppressed for the same video (still transitioning?) - texts=$texts")
             return
         }
+        val (updatedStreak, tripped) = SkipStreakGuard.recordSkip(
+            skipStreakState, now, SKIP_STREAK_WINDOW_MILLIS, MAX_CONSECUTIVE_SKIPS
+        )
+        if (tripped) {
+            // Whatever the actual cause turns out to be - an over-broad keyword, a
+            // video-transition edge case, something not yet seen in a diagnostic log -
+            // this many skips this fast isn't genuinely that many ads/blocked creators
+            // back to back. Pause rather than keep swiping, and say so loudly (Activity,
+            // not just Diagnostic Log) since this is exactly the "out of control" feeling
+            // a silent runaway produces.
+            skipStreakState = SkipStreakState()
+            circuitBreakerTrippedUntilMillis = now + CIRCUIT_BREAKER_PAUSE_MILLIS
+            val warning = "Auto-skip paused for ${CIRCUIT_BREAKER_PAUSE_MILLIS / 1000}s - " +
+                "$MAX_CONSECUTIVE_SKIPS skips happened within ${SKIP_STREAK_WINDOW_MILLIS / 1000}s, " +
+                "which looks like a runaway pattern rather than that many ads/blocked creators " +
+                "genuinely back to back. Check Diagnostic Log's recent FILTER entries to see " +
+                "what kept matching."
+            statsRepository.recordEvent(warning)
+            diagnosticLog.log("FILTER", "CIRCUIT BREAKER TRIPPED - $warning")
+
+            // Escalation: this pause-and-resume is itself supposed to be rare. If it
+            // keeps happening, the pause isn't fixing anything and "paused" isn't what
+            // was actually asked for - see docs/auto_scroll_hard_stop/PRD.md.
+            val (updatedTripHistory, hardStop) = HardStopGuard.recordTrip(
+                tripHistoryState, now, ESCALATION_WINDOW_MILLIS, MAX_TRIPS_IN_ESCALATION_WINDOW
+            )
+            tripHistoryState = if (hardStop) TripHistoryState() else updatedTripHistory
+            if (hardStop) {
+                // A real, persisted stop - not another pause. All three toggles that can
+                // actually produce a SkipDecision (see FilterEngine.evaluate/SkipReason),
+                // not just ad/blocked-creator - see docs/auto_scroll_hard_stop/PRD.md
+                // §3a-P2 for why disabling only two of the three would leave this
+                // silently ineffective if the third is what's actually recurring.
+                settingsRepository.isAdSkipEnabled = false
+                settingsRepository.isBlockedCreatorSkipEnabled = false
+                settingsRepository.isRepeatViewSkipEnabled = false
+                val hardStopWarning = "AUTO-SKIP TURNED OFF: the pause-and-resume safety " +
+                    "net above tripped $MAX_TRIPS_IN_ESCALATION_WINDOW times within " +
+                    "${ESCALATION_WINDOW_MILLIS / 60_000} minutes, meaning something is " +
+                    "still causing a runaway skip pattern even after pausing. Skip ads, " +
+                    "Skip blocked creators, and Repeat-view skip have all been turned OFF " +
+                    "- turn them back on in Filters once you've checked what's wrong. To " +
+                    "help find the actual cause: make sure Diagnostic Logging is on " +
+                    "(Diagnostics), reproduce this, and share the log."
+                statsRepository.recordEvent(hardStopWarning)
+                diagnosticLog.log("FILTER", "HARD STOP - $hardStopWarning")
+            }
+            return
+        }
+        skipStreakState = updatedStreak
         diagnosticLog.log("FILTER", "${decision.reason} matched \"${decision.detail}\" - live=$isLive - texts=$texts")
 
         lastSkipMillis = now
@@ -212,7 +287,9 @@ class TikTokFilterService : AccessibilityService() {
     private fun attemptSubjectBoost(root: AccessibilityNodeInfo, texts: List<String>, isLive: Boolean) {
         if (isLive || !settingsRepository.isSubjectBoostEnabled) return
         if (!FilterEngine.matchesSubject(texts, settingsRepository.subjectKeywords)) return
-        val videoIdentity = FilterEngine.extractHandle(texts) ?: texts.firstOrNull()
+        // See FilterEngine.videoIdentity's own doc - same fix as the skip-dedup call site,
+        // same fragility this replaces.
+        val videoIdentity = FilterEngine.videoIdentity(texts)
         if (videoIdentity != null && videoIdentity == lastAutoLikedVideoIdentity) return
         lastAutoLikedVideoIdentity = videoIdentity
         diagnosticLog.log("SUBJECT_BOOST", "subject match - attempting auto-like - texts=$texts")
@@ -311,5 +388,21 @@ class TikTokFilterService : AccessibilityService() {
         private const val SWIPE_DURATION_MILLIS = 250L
         private const val MAX_TREE_DEPTH = 60
         private const val OVERLAY_HIDE_DELAY_MILLIS = 800L
+        // Runaway auto-skip circuit breaker (see SkipStreakGuard) - UNCONFIRMED, reasonable-
+        // sounding thresholds, same honesty status as every other threshold in this app.
+        // 8 skips within 15s is well beyond what even a genuinely bad ad-heavy stretch of
+        // real TikTok scrolling would produce; 30s is long enough to actually notice the
+        // pause (and the Activity log line explaining it) rather than it blending into the
+        // next COOLDOWN_MILLIS-scale gap.
+        private const val MAX_CONSECUTIVE_SKIPS = 8
+        private const val SKIP_STREAK_WINDOW_MILLIS = 15_000L
+        private const val CIRCUIT_BREAKER_PAUSE_MILLIS = 30_000L
+        // Escalation on top of the above (see HardStopGuard, docs/auto_scroll_hard_stop/
+        // PRD.md) - UNCONFIRMED, same honesty status as every other threshold in this
+        // app. 3 trips within 5 minutes means the pause-and-resume cycle above already
+        // happened 3 times and did NOT fix itself - a driver reporting "still auto
+        // scrolling" after the circuit breaker shipped is exactly this pattern.
+        private const val MAX_TRIPS_IN_ESCALATION_WINDOW = 3
+        private const val ESCALATION_WINDOW_MILLIS = 5 * 60_000L
     }
 }

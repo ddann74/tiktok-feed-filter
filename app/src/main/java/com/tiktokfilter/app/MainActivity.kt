@@ -55,6 +55,7 @@ class MainActivity : AppCompatActivity() {
 
         requestStoragePermissionIfNeeded()
         setupListeners()
+        setupQuickJumpNav()
         binding.adSkipSwitch.isChecked = settingsRepository.isAdSkipEnabled
         binding.blockedCreatorSkipSwitch.isChecked = settingsRepository.isBlockedCreatorSkipEnabled
         binding.realBlockSwitch.isChecked = settingsRepository.isRealBlockAutomationEnabled
@@ -90,6 +91,30 @@ class MainActivity : AppCompatActivity() {
         }
         if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, arrayOf(permission), REQUEST_STORAGE_PERMISSION)
+        }
+    }
+
+    /** Fixed quick-jump nav bar (activity_main.xml's HorizontalScrollView above
+      * mainScrollView) - one chip per major section, each scrolling straight to it. Added
+      * because reaching Diagnostics (the section you actually need when something's wrong)
+      * meant scrolling past 8+ other sections every time in the single long screen this
+      * app previously was - see docs/user_reported_fixes/PRD.md. */
+    private fun setupQuickJumpNav() {
+        val jumps = listOf(
+            binding.navChipFilters to binding.sectionFilters,
+            binding.navChipBlockedCreators to binding.sectionBlockedCreators,
+            binding.navChipAdKeywords to binding.sectionAdKeywords,
+            binding.navChipSubjectBoost to binding.sectionSubjectBoost,
+            binding.navChipTargetPackages to binding.sectionTargetPackages,
+            binding.navChipRealTikTok to binding.sectionRealTikTok,
+            binding.navChipLiveStreams to binding.sectionLiveStreams,
+            binding.navChipActivity to binding.sectionActivity,
+            binding.navChipDiagnostics to binding.sectionDiagnostics
+        )
+        for ((chip, target) in jumps) {
+            chip.setOnClickListener {
+                binding.mainScrollView.smoothScrollTo(0, target.top)
+            }
         }
     }
 
@@ -202,6 +227,13 @@ class MainActivity : AppCompatActivity() {
             binding.downloadOptionKeywordInput.setText("")
             renderDownloadOptionKeywords()
         }
+        binding.addLiveIndicatorKeywordButton.setOnClickListener {
+            val keyword = binding.liveIndicatorKeywordInput.text.toString().trim()
+            if (keyword.isEmpty()) return@setOnClickListener
+            settingsRepository.addKeyword(settingsRepository::liveIndicatorKeywords, keyword)
+            binding.liveIndicatorKeywordInput.setText("")
+            renderLiveIndicatorKeywords()
+        }
         binding.addLiveMoreOptionsKeywordButton.setOnClickListener {
             val keyword = binding.liveMoreOptionsKeywordInput.text.toString().trim()
             if (keyword.isEmpty()) return@setOnClickListener
@@ -294,6 +326,7 @@ class MainActivity : AppCompatActivity() {
         renderDownloadOptionKeywords()
         renderLiveMoreOptionsKeywords()
         renderLikeOptionKeywords()
+        renderLiveIndicatorKeywords()
     }
 
     /** Not built on the shared renderList helper (unlike every other list here) because
@@ -388,6 +421,18 @@ class MainActivity : AppCompatActivity() {
         renderList(binding.likeOptionKeywordsContainer, settingsRepository.likeOptionKeywords) { keyword ->
             settingsRepository.removeKeyword(settingsRepository::likeOptionKeywords, keyword)
             renderLikeOptionKeywords()
+        }
+    }
+
+    /** Was previously unreachable in this UI at all - see docs/user_reported_fixes/PRD.md
+      * and the earlier docs/PRD.md ss3.1 (P1): FilterEngine.isLiveStream's own keyword list
+      * had zero wiring here, which meant the README's documented worst bug (isLiveStream
+      * false-positiving on 906/912 real screen reads because of TikTok's "Live now" preview
+      * rail) had no available fix path for an actual user without a rebuild. */
+    private fun renderLiveIndicatorKeywords() {
+        renderList(binding.liveIndicatorKeywordsContainer, settingsRepository.liveIndicatorKeywords) { keyword ->
+            settingsRepository.removeKeyword(settingsRepository::liveIndicatorKeywords, keyword)
+            renderLiveIndicatorKeywords()
         }
     }
 
