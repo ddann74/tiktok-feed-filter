@@ -518,4 +518,17 @@ class FilterEngineTest {
         val texts = listOf("128 comments", "Like video 4.2K likes")
         assertNull(FilterEngine.videoIdentity(texts))
     }
+
+    @Test
+    fun `videoIdentity does not collide on the generic Video marker two different captionless videos share`() {
+        // Both videos render nothing but TikTok's generic "Video" chrome label and a
+        // count - no real distinguishing content at all. Filtering out "Video" (the
+        // same template exclusion videoFingerprint already applies) means both
+        // correctly return null rather than both returning the same non-null "Video"
+        // string, which would have wrongly treated two different videos as one.
+        val videoA = listOf("Video", "50 comments")
+        val videoB = listOf("Video", "999 comments")
+        assertNull(FilterEngine.videoIdentity(videoA))
+        assertNull(FilterEngine.videoIdentity(videoB))
+    }
 }

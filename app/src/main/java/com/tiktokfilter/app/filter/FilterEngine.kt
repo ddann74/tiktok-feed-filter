@@ -174,13 +174,18 @@ object FilterEngine {
       * Uses the full current-video-scoped text (already-existing [currentVideoTexts],
       * same scoping [evaluate]/[videoFingerprint] use) rather than one arbitrary field -
       * far less likely to coincidentally collide between two different videos, and
-      * stable across re-reads of an unchanged screen. Like/comment-count text is
-      * filtered out (same regexes [videoFingerprint] already uses for the same reason)
-      * so a live-updating counter alone doesn't destabilize the signature. */
+      * stable across re-reads of an unchanged screen. Filters out the same known
+      * template shapes [videoFingerprint] does ([isKnownTemplateText], no handle to
+      * compare against here since [extractHandle] already failed) - not just
+      * like/comment counts - so two different, genuinely captionless videos don't
+      * collapse to the same identity just because their only remaining scoped text is a
+      * generic marker like "Video" - the same class of collision
+      * [videoFingerprint]'s own "CONFIRMED REAL BUG" doc already covers, closed here
+      * too rather than partially. */
     fun videoIdentity(screenTexts: List<String>): String? {
         extractHandle(screenTexts)?.let { return it }
         val scoped = currentVideoTexts(screenTexts)
-            .filterNot { likeCountRegex.matches(it.trim()) || commentCountRegex.matches(it.trim()) }
+            .filterNot { isKnownTemplateText(it, handle = null) }
         if (scoped.isEmpty()) return null
         return scoped.joinToString("|")
     }
@@ -229,9 +234,13 @@ object FilterEngine {
         return "$handle|$captionProxy"
     }
 
-    private fun isKnownTemplateText(text: String, handle: String): Boolean {
+    /** [handle] is null when there's no real creator identity to compare against (see
+      * [videoIdentity], called when [extractHandle] already failed) - every other check
+      * here is independent of the handle anyway, so this still filters out the rest of
+      * TikTok's known chrome/template text without one. */
+    private fun isKnownTemplateText(text: String, handle: String?): Boolean {
         val trimmed = text.trim()
-        return trimmed.equals(handle.trim(), ignoreCase = true) ||
+        return (handle != null && trimmed.equals(handle.trim(), ignoreCase = true)) ||
             profileContentDescriptionRegex.matches(trimmed) ||
             trimmed.startsWith("Follow ", ignoreCase = true) ||
             handleRegex.matches(trimmed) ||

@@ -66,4 +66,29 @@ completed 2026-08-31T13:20:55Z) - `./gradlew test` (including the 5 new
 `./gradlew assembleDebug` both passed. PR #1's `mergeable_state` is
 `clean`.
 
+## Follow-up fix (2026-08-31, found while answering "are there any real gaps")
+
+Re-reading my own `videoIdentity` implementation against `videoFingerprint`'s
+existing, more thorough template-exclusion filtering
+(`isKnownTemplateText`) found it was only reusing 2 of its ~6 checks
+(like/comment counts) - not the literal `"Video"` marker or `"Follow "`-
+prefixed chrome text. In the narrow case where a video has no real creator
+identity AND no caption beyond generic markers, two DIFFERENT such videos
+could still have collided on the same leftover "Video" string - a smaller
+version of the exact collision class `videoFingerprint`'s own doc already
+calls a "CONFIRMED REAL BUG."
+
+Fixed by making `isKnownTemplateText`'s `handle` parameter nullable (the
+other checks don't need one) and having `videoIdentity` reuse it directly
+instead of its own narrower two-regex filter. In the fully-degenerate case
+(no handle, no caption, nothing but chrome), `videoIdentity` now correctly
+returns `null` for both videos rather than a wrongly-matching non-null
+string - `TikTokFilterService`'s dedup guard already treats `null` as
+"don't suppress," which is the same safe tradeoff `docs/PRD.md` §5.1
+already recommended (an occasional double-skip attempt in a maximally
+information-free case is safer than wrongly treating two different videos
+as one). Added a test (`videoIdentity does not collide on the generic
+Video marker...`) confirming this directly. Pushed alongside the other
+tests for CI to confirm.
+
 Remaining PRD §6 box: user sign-off.
