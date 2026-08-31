@@ -1,6 +1,7 @@
 package com.tiktokfilter.app.filter
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -472,5 +473,49 @@ class FilterEngineTest {
             repeatViewLimit = 3
         )
         assertEquals(SkipReason.BLOCKED_CREATOR, decision?.reason)
+    }
+
+    // videoIdentity - see docs/skip_dedup_root_cause/PRD.md. Real bug this closes: the
+    // old `extractHandle(texts) ?: texts.firstOrNull()` fallback could return a
+    // DIFFERENT value across two reads of the exact same still-on-screen video (whenever
+    // extractHandle failed), defeating TikTokFilterService's duplicate-skip guard and
+    // letting a stuck video get re-skipped repeatedly - the actual mechanism behind a
+    // driver-reported "auto scrolling out of control" incident, not just many different
+    // real ads/creators.
+
+    @Test
+    fun `videoIdentity prefers the real creator identity when extractHandle succeeds`() {
+        val texts = listOf("Some Brand profile", "a caption", "128 comments")
+        assertEquals("Some Brand", FilterEngine.videoIdentity(texts))
+    }
+
+    @Test
+    fun `videoIdentity is stable across two identical reads when extractHandle fails`() {
+        // No "@handle" node, no "<name> profile" content description - extractHandle
+        // returns null, same as a real device read where TikTok didn't render either.
+        val texts = listOf("a caption with no creator info", "128 comments")
+        val first = FilterEngine.videoIdentity(texts)
+        val second = FilterEngine.videoIdentity(texts)
+        assertEquals(first, second)
+    }
+
+    @Test
+    fun `videoIdentity is unaffected by a changing like or comment count`() {
+        val before = listOf("a caption with no creator info", "128 comments", "Like video 4.2K likes")
+        val after = listOf("a caption with no creator info", "129 comments", "Like video 4.3K likes")
+        assertEquals(FilterEngine.videoIdentity(before), FilterEngine.videoIdentity(after))
+    }
+
+    @Test
+    fun `videoIdentity still distinguishes two different videos when extractHandle fails on both`() {
+        val videoA = listOf("first video's caption", "128 comments")
+        val videoB = listOf("a completely different caption", "50 comments")
+        assertNotEquals(FilterEngine.videoIdentity(videoA), FilterEngine.videoIdentity(videoB))
+    }
+
+    @Test
+    fun `videoIdentity returns null only when there is truly nothing to identify the video by`() {
+        val texts = listOf("128 comments", "Like video 4.2K likes")
+        assertNull(FilterEngine.videoIdentity(texts))
     }
 }

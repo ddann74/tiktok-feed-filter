@@ -154,6 +154,37 @@ object FilterEngine {
     fun normalizeHandle(handle: String): String =
         handle.trim().removePrefix("@").lowercase()
 
+    /** Stable-enough "is this the same video/screen as last time" identity for
+      * TikTokFilterService's skip and Subject-Boost-auto-like duplicate-action guards.
+      * Prefers the real creator identity ([extractHandle]) exactly as before - no change
+      * when that succeeds. When it fails (TikTok didn't render a "<name> profile" node
+      * this read), the OLD fallback used here was `texts.firstOrNull()` - whatever string
+      * happened to be first in a full-screen traversal. That single field is not
+      * guaranteed stable across two reads of the exact same still-on-screen video (a
+      * re-layout, a lazily-populated chrome element, anything that isn't the video
+      * itself changing) - CONFIRMED REAL BUG this fixes: an unstable fallback defeats the
+      * "still transitioning, don't skip again" duplicate guard, letting the SAME stuck
+      * video (performSkipGesture is a fire-and-forget dispatchGesture call, never
+      * confirmed to have actually advanced TikTok) get re-skipped repeatedly - rapid,
+      * uncontrollable-looking swiping on what may be ONE video, not evidence of many
+      * different real matches. This also resolves docs/PRD.md ss4a-P3's OPPOSITE-direction
+      * concern (a fallback that's wrongly STABLE across two different videos, silently
+      * suppressing a real skip) better than that PRD's own "drop the fallback" suggestion
+      * would have - dropping it entirely would have made THIS bug worse, not better.
+      * Uses the full current-video-scoped text (already-existing [currentVideoTexts],
+      * same scoping [evaluate]/[videoFingerprint] use) rather than one arbitrary field -
+      * far less likely to coincidentally collide between two different videos, and
+      * stable across re-reads of an unchanged screen. Like/comment-count text is
+      * filtered out (same regexes [videoFingerprint] already uses for the same reason)
+      * so a live-updating counter alone doesn't destabilize the signature. */
+    fun videoIdentity(screenTexts: List<String>): String? {
+        extractHandle(screenTexts)?.let { return it }
+        val scoped = currentVideoTexts(screenTexts)
+            .filterNot { likeCountRegex.matches(it.trim()) || commentCountRegex.matches(it.trim()) }
+        if (scoped.isEmpty()) return null
+        return scoped.joinToString("|")
+    }
+
     /** Best-effort per-VIDEO fingerprint for repeat-view tracking (see
       * RepeatViewRepository) - unlike [extractHandle], which only identifies the creator
       * (the same for every video they've ever posted), this needs to tell two DIFFERENT

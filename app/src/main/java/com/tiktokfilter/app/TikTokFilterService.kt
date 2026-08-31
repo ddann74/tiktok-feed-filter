@@ -208,12 +208,13 @@ class TikTokFilterService : AccessibilityService() {
             diagnosticLog.log("FILTER", "${decision.reason} matched \"${decision.detail}\" on a Live stream but live-skip is disabled - texts=$texts")
             return
         }
-        // A best-effort "which video is this" fingerprint - the creator's display name
-        // when one can be found, same identity FilterEngine.extractHandle already relies
-        // on elsewhere. If TikTok is still transitioning out the video we just skipped,
-        // this will still read as that same video rather than the next one, and skipping
-        // it again would be a duplicate, not a new decision.
-        val videoIdentity = FilterEngine.extractHandle(texts) ?: texts.firstOrNull()
+        // A best-effort "which video is this" identity - see FilterEngine.videoIdentity's
+        // own doc for why this is no longer a raw `extractHandle(...) ?: texts.firstOrNull()`
+        // fallback: that pattern was CONFIRMED to let a stuck video (one that didn't
+        // actually advance after performSkipGesture) get re-skipped repeatedly, which is
+        // the actual mechanism behind a driver-reported "auto scrolling out of control"
+        // incident - see docs/skip_dedup_root_cause/PRD.md.
+        val videoIdentity = FilterEngine.videoIdentity(texts)
         if (videoIdentity != null && videoIdentity == lastSkippedVideoIdentity) {
             diagnosticLog.log("FILTER", "duplicate skip suppressed for the same video (still transitioning?) - texts=$texts")
             return
@@ -286,7 +287,9 @@ class TikTokFilterService : AccessibilityService() {
     private fun attemptSubjectBoost(root: AccessibilityNodeInfo, texts: List<String>, isLive: Boolean) {
         if (isLive || !settingsRepository.isSubjectBoostEnabled) return
         if (!FilterEngine.matchesSubject(texts, settingsRepository.subjectKeywords)) return
-        val videoIdentity = FilterEngine.extractHandle(texts) ?: texts.firstOrNull()
+        // See FilterEngine.videoIdentity's own doc - same fix as the skip-dedup call site,
+        // same fragility this replaces.
+        val videoIdentity = FilterEngine.videoIdentity(texts)
         if (videoIdentity != null && videoIdentity == lastAutoLikedVideoIdentity) return
         lastAutoLikedVideoIdentity = videoIdentity
         diagnosticLog.log("SUBJECT_BOOST", "subject match - attempting auto-like - texts=$texts")
