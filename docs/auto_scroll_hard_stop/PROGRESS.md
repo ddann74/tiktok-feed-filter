@@ -52,7 +52,15 @@ caller-reset history after a hard-stop starts fresh.
 Same disclosed limitation as this repo's other PRDs: no Kotlin/JVM
 toolchain in this sandbox, so `HardStopGuardTest` couldn't be run directly
 here - traced through by hand against the pure `recordTrip` logic instead.
-Pushed to PR #1's branch for the real CI (`.github/workflows/android-build.yml`,
-added earlier this session) to actually execute it via `./gradlew test`.
+Pushed to PR #1's branch for the real CI
+(`.github/workflows/android-build.yml`) to execute it for real.
+
+**Confirmed green**: both `build` check runs on commit `7d1c911`
+completed with `conclusion: success` (run
+https://github.com/ddann74/tiktok-feed-filter/actions/runs/33395411480,
+completed 2026-08-31T13:10:49Z) - `./gradlew test` (which includes
+`HardStopGuardTest`, `SkipStreakGuardTest`, `FilterEngineTest`, and
+`ActionSequenceTest`) and `./gradlew assembleDebug` both passed. PR #1's
+`mergeable_state` is `clean`.
 
 Remaining PRD §6 box: user sign-off.
