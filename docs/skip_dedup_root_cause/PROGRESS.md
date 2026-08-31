@@ -91,4 +91,11 @@ as one). Added a test (`videoIdentity does not collide on the generic
 Video marker...`) confirming this directly. Pushed alongside the other
 tests for CI to confirm.
 
+**Confirmed green**: both `build` check runs on commit `4452cd2`
+completed with `conclusion: success`
+(https://github.com/ddann74/tiktok-feed-filter/actions/runs/33396937901,
+completed 2026-08-31T13:27:15Z) - including the new
+"does not collide on the generic Video marker" test. PR #1's
+`mergeable_state` is `clean`.
+
 Remaining PRD §6 box: user sign-off.
