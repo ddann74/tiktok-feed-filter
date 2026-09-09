@@ -130,6 +130,43 @@ class FilterEngineTest {
     }
 
     @Test
+    fun `a non-Latin-script keyword still matches as its own space-delimited word`() {
+        // The JVM regex engine's \b/\w default to ASCII-only unless UNICODE_CHARACTER_CLASS
+        // (the (?U) flag) is set - without it, every character of a non-Latin keyword would
+        // be treated as a non-word character by the boundary check itself, not just missed
+        // by isLetterOrDigit()'s guard (which is already Unicode-aware). "кот" (Cyrillic for
+        // "cat") as its own space-delimited word.
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf("@brand_official", "Я люблю кот сегодня"),
+            adKeywordsEnabled = true,
+            adKeywords = listOf("кот"),
+            blockedCreatorsEnabled = false,
+            blockedCreators = emptySet()
+        )
+        assertEquals(SkipReason.AD, decision?.reason)
+    }
+
+    @Test
+    fun `a non-Latin-script keyword does not match inside a longer word in that script`() {
+        // Same "Ad" inside "Add" bug, in Cyrillic: "кот" (cat) must not match inside
+        // "которая" (which) - a different word that merely starts with the same letters.
+        // HONEST LIMIT: this confirms word-boundary detection works for a script that
+        // delimits words with spaces, same as English. It does NOT confirm anything about
+        // a script with no inter-word delimiter at all (Chinese/Japanese) - \b has no
+        // boundary to find between two adjacent word characters regardless of script,
+        // which is a real, different, NOT solved limitation - see
+        // docs/feed_screen_gate/PRD.md ss9's own disclosure.
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf("@brand_official", "которая история это была"),
+            adKeywordsEnabled = true,
+            adKeywords = listOf("кот"),
+            blockedCreatorsEnabled = false,
+            blockedCreators = emptySet()
+        )
+        assertNull(decision)
+    }
+
+    @Test
     fun `blocked creator handle fires BLOCKED_CREATOR`() {
         val decision = FilterEngine.evaluate(
             screenTexts = listOf("@annoying_account", "some caption text", "42 comments"),
@@ -431,6 +468,43 @@ class FilterEngineTest {
         assertEquals(
             false,
             FilterEngine.isLiveStream(listOf("@some_creator", "a normal caption", "128 comments"), listOf("LIVE"))
+        )
+    }
+
+    // --- looksLikeFeedScreen (diagnostic-only, docs/feed_screen_gate/PRD.md ss7.4) ----
+
+    @Test
+    fun `looksLikeFeedScreen is true when the real For You tab label is present`() {
+        assertEquals(
+            true,
+            FilterEngine.looksLikeFeedScreen(
+                listOf(
+                    "@brand_official", "a caption", "For You", "For You", "Following", "Home",
+                    "Friends", "Create", "Inbox", "Profile"
+                )
+            )
+        )
+    }
+
+    @Test
+    fun `looksLikeFeedScreen is false for the real Android Recents screen shape from the log`() {
+        // Verbatim shape (trimmed) from the real diagnostic log that found this whole
+        // class of bug - the Android task-switcher, not TikTok at all.
+        assertEquals(
+            false,
+            FilterEngine.looksLikeFeedScreen(
+                listOf("Create folder", "Remove", "Podcast Addict", "Waze", "No recent tasks", "Close all")
+            )
+        )
+    }
+
+    @Test
+    fun `looksLikeFeedScreen is false for the real comments-panel shape from the log`() {
+        assertEquals(
+            false,
+            FilterEngine.looksLikeFeedScreen(
+                listOf("Search:", "gen z reacts to metallica", "6,642 comments", "Close", "Add comment...")
+            )
         )
     }
 

@@ -390,8 +390,132 @@ ad/subject keyword shaped the same way, not just this one default.
       using the real `"..."` default
 - [x] Every real default keyword list in `SettingsRepository` traced by
       hand against the new matching behavior
-- [ ] CI green on the real commit
+- [x] CI green on the real commit (PR #3, `ce3972e`, merged `89fb5b7`)
 - [ ] Driver confirms: Block/Download/Live automations still work as
       before, and a forced media-permission failure now shows a real
       `EXTRACT` line instead of a crash
+- [ ] Driver sign-off
+
+## 9. Second follow-up (2026-09-09): "what won't the diagnostic log do now"
+
+Driver asked what limitations remain even after §7/§8's fixes shipped.
+Answered directly (biggest one: nothing confirms a skip actually took
+effect - §1.3's stuck-video case only ever produced silent duplicate
+suppression, never a "this didn't work" line), then driver asked to
+fix what's fixable now. Five changes, three genuinely new capability,
+two deliberately NOT full fixes - each explained below.
+
+### 9.1 A skip that never takes effect now gets ONE warning, not silence forever
+
+`TikTokFilterService`'s duplicate-skip guard (§1.3's own fix) already
+correctly suppressed repeated real swipes on a stuck video - but nothing
+ever told the driver the ORIGINAL skip might not have worked at all.
+Added `stuckVideoWarningLoggedForIdentity`: once a video has been stuck
+(matching the duplicate-suppression check) for `STUCK_VIDEO_WARNING_MILLIS`
+(5s, UNCONFIRMED threshold, same honesty status as every other one in
+this file - a real TikTok transition finishing that fast is a
+reasonable assumption, not a confirmed one), logs one `STUCK VIDEO`
+warning to both Activity and Diagnostic logs, gated so it fires once
+per stuck episode rather than every ~300ms re-read. Doesn't retry a
+different gesture or otherwise change behavior - this PRD's own scope
+discipline (§0) is diagnosability, not inventing an unverified new
+recovery mechanism.
+
+### 9.2 `DownloadedVideoLocator`'s media-permission crash is now visible, not silent
+
+(§7.1 covered the fix - not new here. Restating only because the
+driver's "what won't it do" question was answered before that fix's PR
+had merged; it's already shipped.)
+
+### 9.3 `findAndClickNode`'s word-boundary bug is now Unicode-aware
+
+(§7.2 covered the base fix. New here: `containsWholeWord`'s regex now
+sets `(?U)` (`UNICODE_CHARACTER_CLASS`) - without it, the JVM regex
+engine's `\b`/`\w` default to ASCII-only, so EVERY character of a
+non-Latin-script keyword (Cyrillic, Greek, Arabic, etc.) would be
+treated as a non-word character by the boundary check itself, not just
+missed by the already-Unicode-aware `isLetterOrDigit()` guard. Two new
+tests using a real Cyrillic word pair (`кот`/`которая`, the same
+"shorter word embedded in a longer one" shape as the original "Ad"/
+"Add" bug), traced by hand.
+
+**HONEST LIMIT, found while reasoning through this, not glossed over**:
+`(?U)` does NOT solve matching for a script with no inter-word
+delimiter at all (Chinese, Japanese) - `\b` has no boundary to find
+between two adjacent word characters regardless of script, since there's
+no space or punctuation between them in the first place. A CJK ad
+keyword sitting in the middle of a continuous run of CJK caption text
+could plausibly fail to match even when it's genuinely present, which
+this PRD cannot confirm or rule out without a real device and real CJK
+TikTok content. Not fixed - `(?U)` is a real, correct improvement for
+every script that DOES use word delimiters (which is most of them), not
+a claim that this now works for every script.
+
+### 9.4 Every skip now checks (diagnostic-only) whether the screen even looks like the feed
+
+New `FilterEngine.looksLikeFeedScreen`: checks for TikTok's own literal
+"For You" tab label, confirmed present in every genuine feed read in
+§1's own log and confirmed ABSENT from both of that log's real non-feed
+false positives (the Recents screen, the comments panel). Wired into
+`TikTokFilterService` right before a skip decision takes effect - if
+the screen doesn't look like the feed (and isn't already recognized as
+a Live room, which may have its own different chrome untested here), a
+`WARNING:` line is logged.
+
+**Deliberately does NOT block the skip.** Considered gating the actual
+decision behind this and rejected it: whether a Live room, or some
+other legitimate TikTok screen this app hasn't seen a real log from,
+also lacks "For You" is untested without a real device - using this
+signal to suppress a skip risks silently disabling real ad/blocked-
+creator filtering on a screen this was wrong about, which is a worse
+failure than the one it catches. Logging-only keeps this symmetric with
+the rest of this PRD: if the signal is ever wrong in either direction,
+that's visible in the log, not silently assumed.
+
+Also, still unconfirmed (§5): WHY the Recents screen's own accessibility
+event passed the `targetPackages` filter in the first place. This
+warning would fire the next time it happens, regardless of keyword -
+useful visibility, but not a fix for whatever the actual mechanism is.
+
+### 9.5 Device info + service-unbind logging
+
+`onServiceConnected` now logs `manufacturer`/`model`/`sdk` once per
+session - matches the exact gap `dasher-monitor-`'s own
+`docs/watchdog_reliability/PRD.md` found and fixed for its own
+accessibility service this same session, applied here since this app
+had no equivalent. New `onUnbind` override logs when the system
+disconnects the service (permission revoked, or an OS/OEM kill) -
+previously silent; monitoring would just stop with nothing explaining
+why.
+
+### Testing
+
+- New tests: the two Cyrillic word-boundary tests (§9.3), three
+  `looksLikeFeedScreen` tests using real shapes from §1's own log
+  (§9.4) - a genuine feed screen, the real Recents-screen text, the
+  real comments-panel text.
+- §9.1/§9.5 aren't independently unit-testable (real
+  `AccessibilityService`/`Build`/timing-dependent) - traced by hand
+  against the implementation.
+- Same disclosed limitation as everywhere in this repo: no Kotlin/JVM
+  toolchain in this sandbox - traced by hand, pushed for the real CI to
+  confirm.
+
+## 10. Success criteria for §9
+
+- [x] Stuck-video one-time warning added, gated to fire once per
+      episode
+- [x] `containsWholeWord` made Unicode-aware via `(?U)`; two new
+      Cyrillic tests added
+- [x] HONEST LIMIT disclosed: CJK (no inter-word delimiter) is a real,
+      different, NOT-solved limitation
+- [x] `looksLikeFeedScreen` added, wired as diagnostic-only (never
+      blocks a skip), three new tests using real log shapes
+- [x] `onServiceConnected` logs device manufacturer/model/sdk once per
+      session
+- [x] `onUnbind` override added, logs on service disconnect
+- [ ] CI green on the real commit
+- [ ] Driver confirms: a real stuck-video episode now shows a `STUCK
+      VIDEO` warning; a real wrong-screen match (if one still happens)
+      now shows a `WARNING:` line
 - [ ] Driver sign-off

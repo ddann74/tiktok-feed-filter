@@ -145,6 +145,19 @@ object FilterEngine {
       * made entirely of punctuation has no well-defined word boundary to require in the
       * first place - wrapping it in `\b...\b` would silently never match anything,
       * turning "narrower" into "completely broken" for exactly this shape of keyword.
+      *
+      * `(?U)` (UNICODE_CHARACTER_CLASS): the JVM regex engine's `\w`/`\b` default to
+      * ASCII-only (`[a-zA-Z0-9_]`) unless this is set - without it, EVERY character in a
+      * non-Latin-script keyword (Chinese/Japanese/Korean/Arabic/etc.) would be treated as
+      * a non-word character by the boundary check itself, not just by the
+      * `isLetterOrDigit()` guard above (which IS already Unicode-aware, so a script like
+      * that correctly skips the punctuation-only fallback and hits this path instead -
+      * this flag is what makes the path it hits behave correctly once it's there).
+      * UNCONFIRMED beyond what's traceable by hand: no JVM available in this sandbox to
+      * actually run a non-Latin-script test through this engine, but `(?U)` is the
+      * documented, standard fix for exactly this class of ASCII-only-by-default `\b`
+      * behavior - not a guess.
+      *
       * Falls back to a plain substring check if [keyword] can't compile as a regex too
       * (Regex.escape prevents that in practice, but a driver-entered keyword is untrusted
       * input, not something to trust blindly) - never crash on it, same defensive stance
@@ -154,7 +167,7 @@ object FilterEngine {
             return text.contains(keyword, ignoreCase = true)
         }
         return try {
-            Regex("(?i)\\b${Regex.escape(keyword)}\\b").containsMatchIn(text)
+            Regex("(?iU)\\b${Regex.escape(keyword)}\\b").containsMatchIn(text)
         } catch (e: Exception) {
             text.contains(keyword, ignoreCase = true)
         }
@@ -190,6 +203,24 @@ object FilterEngine {
 
     fun normalizeHandle(handle: String): String =
         handle.trim().removePrefix("@").lowercase()
+
+    /** Best-effort, DIAGNOSTIC-ONLY signal that [screenTexts] looks like TikTok's own main
+      * feed scaffold - checked for "For You", the literal tab label confirmed present in
+      * every genuine feed read in the real diagnostic log that found this whole class of
+      * bug (docs/feed_screen_gate/PRD.md), and confirmed ABSENT from both of that log's
+      * confirmed non-feed false positives (the comments panel, and the Android
+      * Recents/task-switcher screen - see PRD ss1.3/ss5). This does NOT gate or suppress
+      * anything - it is deliberately never wired into [evaluate] or any skip decision.
+      * PRD ss5's own open question (why a non-TikTok screen's accessibility event passed
+      * the target-package filter at all) is still unconfirmed, and whether a Live room or
+      * some other legitimate screen this app hasn't seen a real log from also lacks "For
+      * You" is untested without a real device - using this to actually BLOCK a skip risks
+      * silently disabling real ad/blocked-creator filtering on a screen this was wrong
+      * about, which is a worse failure than the one it would be catching. Logging-only
+      * keeps the same asymmetry the rest of this PRD relies on: if this signal is ever
+      * wrong, that's exactly as visible in the log as the bug it's meant to help catch. */
+    fun looksLikeFeedScreen(screenTexts: List<String>): Boolean =
+        screenTexts.any { it.equals("For You", ignoreCase = true) }
 
     /** Stable-enough "is this the same video/screen as last time" identity for
       * TikTokFilterService's skip and Subject-Boost-auto-like duplicate-action guards.
