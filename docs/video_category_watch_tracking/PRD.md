@@ -313,7 +313,10 @@ Wired into `TikTokFilterService.onAccessibilityEvent`: compute
       transition gaps (roughly 1s to 30s+ between distinct matched
       states), not a clean post-fix genuine-Post-duration sample - 3s
       sits comfortably inside that range rather than at either extreme.
-- [ ] Pushed to a PR; CI green on the real commit
+- [x] Pushed to a PR; CI green on the real commit - both `build` check
+      runs on commit `db06cfc` completed with `conclusion: success`
+      (https://github.com/ddann74/tiktok-feed-filter/actions/runs/34330047120/job/102396253351,
+      https://github.com/ddann74/tiktok-feed-filter/actions/runs/34330042947/job/102396239562)
 - [ ] Driver confirms: a real session's Activity log shows sensible
       Ad/Post/Unidentified entries, doesn't flood out other entries,
       and the durations look roughly right

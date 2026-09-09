@@ -89,3 +89,14 @@ observed range rather than at either extreme, consistent with the
 driver's "start with that" answer rather than contradicting it.
 
 Pushed for the real CI to confirm.
+
+**Confirmed green**: both `build` check runs on commit `db06cfc`
+completed with `conclusion: success`
+(https://github.com/ddann74/tiktok-feed-filter/actions/runs/34330047120/job/102396253351,
+https://github.com/ddann74/tiktok-feed-filter/actions/runs/34330042947/job/102396239562),
+both completed 2026-09-09T08:37:5{0,6}Z - the 8 new tests and the full
+pre-existing suite all passed for real, confirming the hand-traced
+logic was correct.
+
+Remaining PRD §6 boxes: driver confirms with a real session, driver
+sign-off.
