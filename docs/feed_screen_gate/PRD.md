@@ -791,7 +791,10 @@ once, not every ~300ms).
 - [x] `performSkipGesture` wired with a real `GestureResultCallback`;
       `onCancelled` logged, `onCompleted` deliberately not
 - [x] `StuckVideoRetryGuardTest.kt` written and traced by hand (6 tests)
-- [ ] Pushed to a PR; CI green on the real commit
+- [x] Pushed to a PR; CI green on the real commit - both `build` check
+      runs on commit `084589e` completed with `conclusion: success`
+      (https://github.com/ddann74/tiktok-feed-filter/actions/runs/34338508468/job/102423468519,
+      https://github.com/ddann74/tiktok-feed-filter/actions/runs/34338486606/job/102423397047)
 - [ ] Driver confirms: a real stuck episode now shows `RETRY` log lines
       and either recovers or gives up within ~15s instead of sitting
       stuck indefinitely

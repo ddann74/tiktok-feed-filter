@@ -313,3 +313,11 @@ check, then the "matched" log line, then `lastSkipMillis`/
 `stuckVideoRetryCount` only ever resets on a genuinely NEW skip.
 
 Pushed for the real CI to confirm.
+
+**Confirmed green**: both `build` check runs on commit `084589e`
+completed with `conclusion: success`
+(https://github.com/ddann74/tiktok-feed-filter/actions/runs/34338508468/job/102423468519,
+https://github.com/ddann74/tiktok-feed-filter/actions/runs/34338486606/job/102423397047).
+
+Remaining PRD §15 boxes: driver confirms with a real stuck episode,
+driver sign-off.
