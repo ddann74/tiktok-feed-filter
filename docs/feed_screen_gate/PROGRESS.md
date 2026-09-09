@@ -269,3 +269,55 @@ https://github.com/ddann74/tiktok-feed-filter/actions/runs/34337324477/job/10241
 
 Remaining PRD §13 boxes: driver rebuilds/reinstalls and confirms,
 driver answers §12's two open questions, driver sign-off.
+
+## Fourth follow-up (2026-09-09): stuck-gesture retry (§12's second question)
+
+Driver asked to fix the stuck-gesture problem next. Written up as PRD
+§14/§15, same document (continues §11.4/§12's own open question).
+
+New `StuckVideoRetryGuard` (pure, `decide(retryCount,
+elapsedSinceLastAttemptMillis, stuckThresholdMillis, maxRetries) ->
+Retry/GiveUp/KeepWaiting`) wired into `TikTokFilterService`'s existing
+duplicate-skip-suppressed branch: once the same 5s threshold the old
+one-time warning already used has elapsed, retry the gesture (bounded
+to 2 retries, 3 attempts total) instead of only ever warning once. The
+give-up warning still fires exactly once per stuck episode, just after
+retries are exhausted rather than immediately at the 5s mark.
+
+Extracted the circuit-breaker trip-handling code (previously only in
+the real-skip path) into a shared `circuitBreakerTripped(now)` private
+method, used by BOTH the real-skip path and the new retry path -
+deliberate design decision, not an oversight: a stuck-video retry storm
+should trip the exact same runaway-pattern safety net a burst of real
+skips would, rather than being a second, uncapped path that could
+bypass it (see PRD §14a/P4 for the one real tradeoff this creates and
+why it's accepted).
+
+Also wired `performSkipGesture`'s `dispatchGesture` call with a real
+`GestureResultCallback` (previously `null`) - `onCancelled` now logs a
+previously-invisible dispatch-level failure; `onCompleted` deliberately
+not logged (would add a line to every single skip, no diagnostic value
+for the expected case).
+
+New `StuckVideoRetryGuardTest.kt` (6 tests): keep-waiting below
+threshold, retry with incrementing count (twice), give-up once
+`maxRetries` used, give-up stays given up even far past the threshold,
+and a full simulated stuck episode matching the PRD's own ~15s-to-give-up
+math. Traced every test by hand against the implementation (no
+Kotlin/JVM toolchain in this sandbox, same disclosed limitation as
+always), and traced `TikTokFilterService`'s own wiring by hand too -
+specifically re-checked that extracting `circuitBreakerTripped` didn't
+change the real-skip path's behavior (same order: circuit-breaker
+check, then the "matched" log line, then `lastSkipMillis`/
+`lastSkippedVideoIdentity`/`stuckVideoRetryCount` updates), and that
+`stuckVideoRetryCount` only ever resets on a genuinely NEW skip.
+
+Pushed for the real CI to confirm.
+
+**Confirmed green**: both `build` check runs on commit `084589e`
+completed with `conclusion: success`
+(https://github.com/ddann74/tiktok-feed-filter/actions/runs/34338508468/job/102423468519,
+https://github.com/ddann74/tiktok-feed-filter/actions/runs/34338486606/job/102423397047).
+
+Remaining PRD §15 boxes: driver confirms with a real stuck episode,
+driver sign-off.

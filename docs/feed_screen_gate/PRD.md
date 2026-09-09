@@ -663,3 +663,139 @@ real open question (§12) rather than rushed.
       comments"/"outside the app" auto-scroll stops
 - [ ] Driver answers §12's two open questions
 - [ ] Driver sign-off
+
+## 14. Fourth follow-up (2026-09-09): the stuck-gesture retry problem (§12's second question)
+
+Driver asked to fix the stuck-gesture problem next (§12's second open
+question, `performSkipGesture` never confirming a skip actually took
+effect).
+
+### 14.1 Design
+
+`performSkipGesture` was fire-and-forget: `dispatchGesture(gesture,
+null, null)`, no completion callback, no follow-up if the video never
+advanced. The EXISTING duplicate-skip guard
+(`docs/skip_dedup_root_cause/PRD.md`) already detects "still the same
+video" via `videoIdentity`, and the one-time `STUCK VIDEO` warning
+(§9.1) already fires once real dwell time rules out "still normally
+transitioning" - neither ever tried anything DIFFERENT.
+
+New pure class `StuckVideoRetryGuard` (`app/src/main/java/com/
+tiktokfilter/app/filter/`, same "testable without a device" pattern as
+`SkipStreakGuard`/`HardStopGuard`): `decide(retryCount,
+elapsedSinceLastAttemptMillis, stuckThresholdMillis, maxRetries) ->
+StuckVideoAction` (`Retry(updatedRetryCount)` / `GiveUp` /
+`KeepWaiting`). Wired into `TikTokFilterService`'s existing
+duplicate-skip branch: once `STUCK_VIDEO_WARNING_MILLIS` (5s, the SAME
+threshold the old one-time warning already used) has elapsed since the
+last attempt, retry the skip gesture instead of only warning - bounded
+to `MAX_STUCK_VIDEO_RETRIES = 2` (UNCONFIRMED - 3 total attempts
+including the original) before giving up and warning (same message
+shape as before, updated to say "retried N times" instead of "may not
+have taken effect").
+
+Reuses `lastSkipMillis` (already updated on every attempt) as "elapsed
+since last attempt," rather than a second timestamp field - a retry
+updates it exactly like a real skip does, so the SAME 5s spacing
+naturally applies between retries too.
+
+**Circuit breaker integration (deliberate design decision)**: retries
+go through the exact same `SkipStreakGuard`/`HardStopGuard` machinery
+as real skips (extracted into a new private `circuitBreakerTripped(now)`
+helper, shared by both the real-skip path and the retry path, replacing
+two would-be copies of the same trip-handling code). A stuck-video
+retry storm trips the SAME runaway-pattern safety net a burst of real
+ad/blocked-creator skips would - considered NOT counting retries toward
+the streak, rejected: an uncapped, uncounted retry path could itself
+become exactly the "auto scrolling out of control" failure this whole
+document exists to fix, if the retry bound ever had a bug. Counting them
+is the safer default.
+
+**Also added**: `performSkipGesture`'s `dispatchGesture` call now passes
+a real `GestureResultCallback` instead of `null` - `onCancelled` is
+logged (a previously-invisible DISPATCH-level failure, distinct from
+TikTok simply not responding to a gesture that WAS delivered);
+`onCompleted` is deliberately NOT logged (the expected case on every
+normal skip - would add a line to every single skip for no diagnostic
+value, the same noise-avoidance principle as the give-up warning firing
+once, not every ~300ms).
+
+### 14a. Premortem: assume this pass fails again
+
+- **P1 - retrying the IDENTICAL gesture may not help if the original
+  failure wasn't transient.** No real-device signal exists yet for WHY
+  a gesture fails to advance TikTok (a system-level dispatch failure,
+  TikTok itself ignoring input during some UI state, a genuine timing
+  issue) - retrying the same swipe shape is the simplest hypothesis
+  (transient failure) and doesn't require guessing at a "better"
+  gesture without evidence. If retries consistently don't help, that's
+  itself useful data for a future round (now visible via the RETRY log
+  lines plus, if it's a dispatch failure, the new `onCancelled` log
+  line) - not silently assumed to be solved by this pass.
+- **P2 - a real stuck episode still takes ~15s to give up on now
+  (5s original wait + two 5s-spaced retries), not instant, and NOT the
+  full ~101s previously observed - but still not zero.** The driver may
+  still perceive a stuck video as "stuck" for those 15s, just recovering
+  (if a retry works) or giving up (if not) far sooner than before. Not
+  presented as eliminating the problem, only substantially bounding it
+  from a worst case of ~101s+ (unbounded, only limited by how long the
+  driver kept scrolling) down to a fixed ~15s ceiling.
+- **P3 - `MAX_STUCK_VIDEO_RETRIES = 2` and the 5s spacing are both
+  UNCONFIRMED guesses**, same honesty status as every threshold in this
+  app. No real diagnostic log yet shows whether a retry actually
+  recovers a stuck video (this round shipped without a driver-confirmed
+  "yes, a retry worked" case) - the RETRY log lines this adds are what
+  would let a future log confirm or refute this.
+- **P4 - counting retries toward the circuit breaker (see Design above)
+  could, in a pathological case, make an ALREADY-stuck video also
+  trigger the circuit breaker's own pause** (2 retries plus 6+ unrelated
+  real skips within the same 15s window). Considered acceptable: the
+  circuit breaker pausing and explaining itself is a much better
+  outcome than a silent runaway, even if triggered partly by retries
+  rather than only by distinct real skips - and this scenario requires
+  BOTH a stuck video AND a separate already-existing high skip rate to
+  occur together, not just a stuck video alone.
+- **P5 - `onCancelled` being silent (never fires) is not proof the
+  gesture actually worked** - it only rules out ONE specific failure
+  mode (OS-level dispatch cancellation). A gesture that dispatches
+  successfully but that TikTok's own UI ignores would show neither an
+  `onCancelled` line NOR any other new signal - still indistinguishable
+  from "the video was correctly categorized as an ad and is just slow
+  to transition" without a real device to confirm which is happening.
+
+### 14b. Testing / verification approach
+
+- `StuckVideoRetryGuardTest.kt` (new): keep-waiting before the
+  threshold, retry with an incrementing count, give-up once
+  `maxRetries` is reached, give-up STAYS given up even with a much
+  longer elapsed time, and a full simulated ~15s stuck episode (2
+  retries then give-up, matching P2's own math).
+- `TikTokFilterService`'s own wiring (Android-dependent, same
+  untestable-in-this-sandbox limitation as the rest of that file) -
+  traced by hand against every existing call site
+  (`lastSkipMillis`/`stuckVideoRetryCount`/`stuckVideoWarningLoggedForIdentity`
+  read/write ordering, the circuit-breaker extraction preserving the
+  EXACT same behavior for the real-skip path it was extracted from).
+- No JVM/Kotlin toolchain in this sandbox (same disclosed limitation as
+  every PRD here) - pushed for the real CI to confirm.
+
+## 15. Success criteria for §14
+
+- [x] `StuckVideoRetryGuard` (pure, Android-free) added with `decide`
+- [x] `TikTokFilterService`'s duplicate-skip branch retries up to
+      `MAX_STUCK_VIDEO_RETRIES` times, spaced by `STUCK_VIDEO_WARNING_MILLIS`,
+      before giving up and warning (updated message)
+- [x] Retries share the exact same circuit-breaker path as real skips
+      (`circuitBreakerTripped` helper, no duplicated trip-handling code)
+- [x] `stuckVideoRetryCount` resets on every genuinely NEW skip
+- [x] `performSkipGesture` wired with a real `GestureResultCallback`;
+      `onCancelled` logged, `onCompleted` deliberately not
+- [x] `StuckVideoRetryGuardTest.kt` written and traced by hand (6 tests)
+- [x] Pushed to a PR; CI green on the real commit - both `build` check
+      runs on commit `084589e` completed with `conclusion: success`
+      (https://github.com/ddann74/tiktok-feed-filter/actions/runs/34338508468/job/102423468519,
+      https://github.com/ddann74/tiktok-feed-filter/actions/runs/34338486606/job/102423397047)
+- [ ] Driver confirms: a real stuck episode now shows `RETRY` log lines
+      and either recovers or gives up within ~15s instead of sitting
+      stuck indefinitely
+- [ ] Driver sign-off
