@@ -108,5 +108,13 @@ Pushed for the real CI (`.github/workflows/android-build.yml`) to
 execute `./gradlew test` (including all 5 new tests plus the full
 pre-existing suite) and `./gradlew assembleDebug`.
 
-Remaining PRD §6 boxes: CI confirmation (update this entry once green),
-driver confirms with a real Diagnostic Log, and driver sign-off.
+**Confirmed green**: both `build` check runs on commit `f045790`
+completed with `conclusion: success`
+(https://github.com/ddann74/tiktok-feed-filter/actions/runs/34325326359,
+https://github.com/ddann74/tiktok-feed-filter/actions/runs/34325289582,
+both completed 2026-09-09T07:45:5{1,4}Z) - the 5 new tests and the full
+pre-existing suite all passed for real, confirming the hand-traced
+logic was correct. PR #2's `mergeable_state` is `clean`.
+
+Remaining PRD §6 boxes: driver confirms with a real Diagnostic Log, and
+driver sign-off.

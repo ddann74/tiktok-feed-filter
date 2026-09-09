@@ -299,7 +299,7 @@ New tests, added to `FilterEngineTest.kt`, matching its existing style:
 - [x] 5 new tests added (§4), traced by hand against the implementation
 - [x] Every pre-existing `FilterEngineTest` test still passes (traced by
       hand)
-- [ ] Pushed to a PR; CI (`./gradlew test` + `./gradlew assembleDebug`)
+- [x] Pushed to a PR; CI (`./gradlew test` + `./gradlew assembleDebug`)
       confirmed green on the real commit, not just traced by hand
 - [x] `docs/feed_screen_gate/PROGRESS.md` written, same shape as the
       other two PRDs in this repo
