@@ -903,7 +903,10 @@ loop's "keep scanning past a miss" logic directly.
       fixture does not match under the new implementation
 - [x] New test: scan-forward loop correctly finds a later real match
       past an earlier non-boundary occurrence
-- [ ] Pushed to a PR; CI green on the real commit
+- [x] Pushed to a PR; CI green on the real commit - both `build` check
+      runs on commit `a0ec097` completed with `conclusion: success`
+      (https://github.com/ddann74/tiktok-feed-filter/actions/runs/34342909226/job/102437631471,
+      https://github.com/ddann74/tiktok-feed-filter/actions/runs/34342884331/job/102437550159)
 - [ ] Driver confirms: a real session shows dramatically fewer/no
       "Add"-substring false-positive `AD matched` lines
 - [ ] Driver sign-off

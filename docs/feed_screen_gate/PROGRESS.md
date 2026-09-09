@@ -375,3 +375,11 @@ future round rather than guessed at now. The "autoscrolls while
 paused" report wasn't confirmed or ruled out in this specific log.
 
 Pushed for the real CI to confirm.
+
+**Confirmed green**: both `build` check runs on commit `a0ec097`
+completed with `conclusion: success`
+(https://github.com/ddann74/tiktok-feed-filter/actions/runs/34342909226/job/102437631471,
+https://github.com/ddann74/tiktok-feed-filter/actions/runs/34342884331/job/102437550159).
+
+Remaining PRD §17 boxes: driver confirms with a real session,
+driver sign-off.
