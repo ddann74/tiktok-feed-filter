@@ -2,7 +2,9 @@ package com.tiktokfilter.app
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.content.Intent
 import android.graphics.Path
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
@@ -41,6 +43,16 @@ class TikTokFilterService : AccessibilityService() {
     // transition to the next video takes longer than COOLDOWN_MILLIS, which the
     // time-only cooldown alone can't detect.
     private var lastSkippedVideoIdentity: String? = null
+    // CONFIRMED REAL GAP, found auditing the diagnostic log's own coverage: the
+    // duplicate-skip guard above records that a skip was ATTEMPTED, never whether TikTok
+    // actually advanced past it - a real diagnostic log showed the same video stuck for
+    // 1m28s, producing ~290 "duplicate skip suppressed" lines with nothing ever saying
+    // the original skip didn't take effect (docs/feed_screen_gate/PRD.md ss7.3's own
+    // premortem P3 flagged this as known-but-unfixed at the time). Tracks which stuck
+    // video has already gotten its one-time warning, so it fires once per stuck episode
+    // - not every ~300ms for as long as the video stays stuck - see the duplicate-skip
+    // branch below.
+    private var stuckVideoWarningLoggedForIdentity: String? = null
     // Same dedup shape as lastSkippedVideoIdentity, but for Subject Boost's auto-like -
     // without it, a video that lingers on screen across multiple accessibility events
     // (normal - nothing here forces it to move on) would get an attempted like on every
@@ -83,7 +95,31 @@ class TikTokFilterService : AccessibilityService() {
             onDownloadVideoTapped = { handleOverlayDownloadTapped(DownloadMode.VIDEO_ONLY) },
             onDownloadAudioTapped = { handleOverlayDownloadTapped(DownloadMode.AUDIO_ONLY) }
         )
+        // Found auditing the diagnostic log's own coverage: nothing anywhere recorded
+        // which device this is, so an OEM-specific bug (a manufacturer's own aggressive
+        // battery manager, a launcher/gesture-nav quirk like the still-unconfirmed
+        // Recents-screen question in docs/feed_screen_gate/PRD.md ss5) would have no way
+        // to be told apart from a universal one just by reading the log. Once per
+        // session, matching the same reasoning dasher-monitor-'s own
+        // docs/watchdog_reliability/PRD.md already established for this exact gap.
+        diagnosticLog.log(
+            "SERVICE",
+            "device: manufacturer=${Build.MANUFACTURER}, model=${Build.MODEL}, sdk=${Build.VERSION.SDK_INT}"
+        )
         diagnosticLog.log("SERVICE", "onServiceConnected")
+    }
+
+    /** AccessibilityService's own unbind hook - fires when the system disconnects this
+      * service (the driver turned the accessibility permission off, or the OS/an
+      * aggressive OEM battery manager tore it down). Previously silent - monitoring
+      * would just stop with nothing in the log explaining why, the exact class of gap
+      * dasher-monitor-'s own docs/watchdog_reliability/PRD.md already found and fixed
+      * for its own accessibility service this same session. */
+    override fun onUnbind(intent: Intent?): Boolean {
+        diagnosticLog.log("SERVICE", "onUnbind - accessibility service disconnected")
+        mainHandler.removeCallbacks(hideOverlayRunnable)
+        overlayController.hide()
+        return super.onUnbind(intent)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -208,6 +244,17 @@ class TikTokFilterService : AccessibilityService() {
             diagnosticLog.log("FILTER", "${decision.reason} matched \"${decision.detail}\" on a Live stream but live-skip is disabled - texts=$texts")
             return
         }
+        // CONFIRMED REAL GAP, found auditing the diagnostic log's own coverage: a real
+        // log showed this exact matched-and-about-to-skip path fire on the Android
+        // Recents/task-switcher screen (not TikTok at all) and on TikTok's own comments
+        // panel while it was open - see docs/feed_screen_gate/PRD.md ss1.3. Diagnostic-
+        // only (see FilterEngine.looksLikeFeedScreen's own doc for why this doesn't
+        // block the skip) - just makes a wrong-screen match as visible in the log as a
+        // right-screen one already is, rather than needing a driver-supplied log to
+        // notice it happened at all.
+        if (!isLive && !FilterEngine.looksLikeFeedScreen(texts)) {
+            diagnosticLog.log("FILTER", "WARNING: ${decision.reason} matched \"${decision.detail}\" on a screen that doesn't look like the main TikTok feed (no \"For You\" tab visible) - texts=$texts")
+        }
         // A best-effort "which video is this" identity - see FilterEngine.videoIdentity's
         // own doc for why this is no longer a raw `extractHandle(...) ?: texts.firstOrNull()`
         // fallback: that pattern was CONFIRMED to let a stuck video (one that didn't
@@ -217,6 +264,22 @@ class TikTokFilterService : AccessibilityService() {
         val videoIdentity = FilterEngine.videoIdentity(texts)
         if (videoIdentity != null && videoIdentity == lastSkippedVideoIdentity) {
             diagnosticLog.log("FILTER", "duplicate skip suppressed for the same video (still transitioning?) - texts=$texts")
+            // One-time warning once this has gone on long enough that "still
+            // transitioning" stops being a plausible explanation - UNCONFIRMED threshold
+            // (STUCK_VIDEO_WARNING_MILLIS), same honesty status as every other threshold
+            // in this file, but a real TikTok transition finishing in under 5s is a much
+            // safer assumption than the alternative (never warning at all). Gated on
+            // stuckVideoWarningLoggedForIdentity so this fires once per stuck episode,
+            // not on every ~300ms re-read for as long as it stays stuck.
+            if (now - lastSkipMillis >= STUCK_VIDEO_WARNING_MILLIS && videoIdentity != stuckVideoWarningLoggedForIdentity) {
+                stuckVideoWarningLoggedForIdentity = videoIdentity
+                val warning = "A skip was attempted ${(now - lastSkipMillis) / 1000}s ago but this " +
+                    "video is still on screen - the swipe may not have actually taken effect. " +
+                    "If this keeps happening, TikTok's gesture handling may need a different " +
+                    "approach here, not another retry."
+                statsRepository.recordEvent(warning)
+                diagnosticLog.log("FILTER", "STUCK VIDEO - $warning")
+            }
             return
         }
         val (updatedStreak, tripped) = SkipStreakGuard.recordSkip(
@@ -388,6 +451,9 @@ class TikTokFilterService : AccessibilityService() {
         private const val SWIPE_DURATION_MILLIS = 250L
         private const val MAX_TREE_DEPTH = 60
         private const val OVERLAY_HIDE_DELAY_MILLIS = 800L
+        // UNCONFIRMED, reasonable-sounding threshold, same honesty status as every other
+        // one in this file - see stuckVideoWarningLoggedForIdentity's own field comment.
+        private const val STUCK_VIDEO_WARNING_MILLIS = 5_000L
         // Runaway auto-skip circuit breaker (see SkipStreakGuard) - UNCONFIRMED, reasonable-
         // sounding thresholds, same honesty status as every other threshold in this app.
         // 8 skips within 15s is well beyond what even a genuinely bad ad-heavy stretch of

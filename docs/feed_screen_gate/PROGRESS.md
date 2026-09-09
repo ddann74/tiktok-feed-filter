@@ -167,6 +167,57 @@ unit-testable (operates on real `AccessibilityNodeInfo`) - its
 correctness now rides entirely on `containsWholeWord`, already fully
 covered by `FilterEngineTest.kt`.
 
-Pushed for the real CI to confirm. Remaining PRD §8 boxes: CI
-confirmation (update this entry once green), driver confirms, driver
-sign-off.
+Pushed for the real CI to confirm.
+
+**Confirmed green**: both `build` check runs on commit `ce3972e`
+completed with `conclusion: success`, PR #3 merged as `89fb5b7`.
+
+Remaining PRD §8 boxes: driver confirms, driver sign-off.
+
+## Second follow-up (2026-09-09): "what won't the diagnostic log do now"
+
+Driver asked what's still missing after §7/§8. Answered directly first
+(the biggest one: nothing confirms a skip actually took effect - a
+stuck video only ever produced silent duplicate suppression), then
+driver asked to fix what's fixable now. Written up as PRD §9/§10, same
+document.
+
+Five changes:
+1. **Stuck-video warning** - `stuckVideoWarningLoggedForIdentity` +
+   `STUCK_VIDEO_WARNING_MILLIS` (5s, UNCONFIRMED). One `STUCK VIDEO`
+   warning per stuck episode, not a retry or any other behavior change
+   - scope discipline, not a new unverified recovery mechanism.
+2. Media-locate crash guard - already shipped in §7.1/PR #3, restated
+   only because the driver's question was asked before that PR merged.
+3. **Unicode-aware word-boundary matching** - `(?U)` added to
+   `containsWholeWord`'s regex. Two new Cyrillic tests
+   (`кот`/`которая`). HONEST LIMIT found while reasoning through this,
+   not glossed over: CJK scripts have no inter-word delimiter at all,
+   so `\b` has nothing to find a boundary against regardless of this
+   flag - a real, different, NOT-solved limitation, disclosed rather
+   than silently claimed as fixed.
+4. **`looksLikeFeedScreen`, diagnostic-only** - checks for TikTok's own
+   "For You" tab label (confirmed present in every genuine feed read,
+   absent from both real non-feed false positives in the original
+   log). Deliberately does NOT gate/block a skip - considered it and
+   rejected it: whether a Live room or an untested legitimate screen
+   also lacks this marker is unconfirmed without a real device, and
+   using it to suppress a skip risks silently breaking real filtering,
+   a worse failure than the one it would catch. Logs a `WARNING:` line
+   instead - same symmetric-visibility principle as everything else in
+   this PRD.
+5. **Device info + `onUnbind` logging** - `onServiceConnected` now logs
+   manufacturer/model/sdk once per session; new `onUnbind` override
+   logs on service disconnect. Direct port of the exact gap
+   `dasher-monitor-`'s own `docs/watchdog_reliability/PRD.md` found and
+   fixed for its own accessibility service this same session.
+
+New tests: two Cyrillic word-boundary tests, three `looksLikeFeedScreen`
+tests using real shapes from the original log (genuine feed, real
+Recents-screen text, real comments-panel text). Traced every new and
+pre-existing test by hand (no Kotlin/JVM toolchain in this sandbox, same
+disclosed limitation as always) before pushing for the real CI to
+confirm.
+
+Remaining PRD §10 boxes: CI confirmation (update once green), driver
+confirms, driver sign-off.
