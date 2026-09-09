@@ -221,3 +221,46 @@ confirm.
 
 Remaining PRD §10 boxes: CI confirmation (update once green), driver
 confirms, driver sign-off.
+
+**Confirmed green**: both `build` check runs on commit `e1875fd`
+completed with `conclusion: success`, PR #4 merged as `65bc9cf`.
+
+## Third follow-up (2026-09-09): "still happening, also in comments, also outside the app" - diagnostics11.log
+
+Driver reported the auto-scroll issue persisting in comments and
+"outside of the app itself", with a new real log (`diagnostics11.log`).
+
+**Important, flagged directly to the driver**: line 321-322's match (an
+"Ad" skip on TikTok's own share-to bottom sheet, text list contains
+only "Add to Story", never a standalone "Ad") is the exact signature of
+the OLD plain-substring bug PR #2 already fixed. Verified with a real
+regex engine (Python's `re`, not just hand-tracing) that `\bAd\b`
+cannot match "Add to Story" - the current code on `main` could not have
+produced this match. Strong signal the installed build predates PR #2
+and hasn't been rebuilt/reinstalled since - flagged prominently rather
+than chased further as a new code bug, since chasing a bug that's
+already fixed but undeployed would waste both sides' time.
+
+Two things ARE real regardless of build staleness: `looksLikeFeedScreen`
+correctly flagged the share sheet and comments panel as non-feed
+(WARNING fired as designed), and a ~101s stuck-video episode occurred on
+a real ad (confirmed via a standalone "Ad" badge element in its text
+list, not a substring match) - the largest stuck episode seen across
+either log, and the underlying gesture-not-confirmed gap is still open
+(§11.4/§12, deliberately not attempted this round - too large/risky to
+rush).
+
+**Fix shipped this round**: promoted `looksLikeFeedScreen` from
+diagnostic-only (WARNING, PR #4) to an actual skip gate (`return`,
+suppresses the skip) in `TikTokFilterService`, now that two separate
+real logs show zero false positives and confirm exactly the screens
+(comments panel, share sheet) the driver is reporting. Live rooms
+unaffected (excluded earlier in the same function). No source change to
+`FilterEngine.looksLikeFeedScreen` itself - only its doc comment and its
+call site's behavior changed - so no new `FilterEngineTest.kt` cases
+needed.
+
+Pushed for the real CI to confirm.
+
+Remaining PRD §13 boxes: CI confirmation, driver rebuilds/reinstalls
+and confirms, driver answers §12's two open questions, driver sign-off.
