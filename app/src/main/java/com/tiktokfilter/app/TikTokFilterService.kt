@@ -16,6 +16,8 @@ import com.tiktokfilter.app.filter.RepeatViewRepository
 import com.tiktokfilter.app.filter.SkipReason
 import com.tiktokfilter.app.filter.SkipStreakGuard
 import com.tiktokfilter.app.filter.SkipStreakState
+import com.tiktokfilter.app.filter.StuckVideoAction
+import com.tiktokfilter.app.filter.StuckVideoRetryGuard
 import com.tiktokfilter.app.filter.TripHistoryState
 import com.tiktokfilter.app.filter.VideoCategory
 import com.tiktokfilter.app.filter.VideoWatchTracker
@@ -48,14 +50,21 @@ class TikTokFilterService : AccessibilityService() {
     private var lastSkippedVideoIdentity: String? = null
     // CONFIRMED REAL GAP, found auditing the diagnostic log's own coverage: the
     // duplicate-skip guard above records that a skip was ATTEMPTED, never whether TikTok
-    // actually advanced past it - a real diagnostic log showed the same video stuck for
-    // 1m28s, producing ~290 "duplicate skip suppressed" lines with nothing ever saying
-    // the original skip didn't take effect (docs/feed_screen_gate/PRD.md ss7.3's own
-    // premortem P3 flagged this as known-but-unfixed at the time). Tracks which stuck
-    // video has already gotten its one-time warning, so it fires once per stuck episode
-    // - not every ~300ms for as long as the video stays stuck - see the duplicate-skip
-    // branch below.
+    // actually advanced past it - real diagnostic logs showed the same video stuck for
+    // as long as ~101s, producing hundreds of "duplicate skip suppressed" lines with
+    // nothing ever saying the original skip didn't take effect (docs/feed_screen_gate/
+    // PRD.md ss7.3's own premortem P3 flagged this as known-but-unfixed at the time).
+    // Escalated in ss14 from a one-time warning fired AT the stuck threshold to a
+    // bounded retry (StuckVideoRetryGuard) - this field now tracks which stuck video has
+    // already gotten its one-time GIVE-UP warning, fired once retries are exhausted, not
+    // every ~300ms for as long as the video stays stuck - see the duplicate-skip branch
+    // below.
     private var stuckVideoWarningLoggedForIdentity: String? = null
+    // Retries already attempted for the CURRENTLY-stuck video (docs/feed_screen_gate/
+    // PRD.md ss14) - reset to 0 whenever a genuinely NEW video is skipped (see
+    // lastSkippedVideoIdentity's own write site). StuckVideoRetryGuard owns the actual
+    // retry-vs-give-up decision; this field is just the count it needs as input.
+    private var stuckVideoRetryCount: Int = 0
     // Same dedup shape as lastSkippedVideoIdentity, but for Subject Boost's auto-like -
     // without it, a video that lingers on screen across multiple accessibility events
     // (normal - nothing here forces it to move on) would get an attempted like on every
@@ -316,84 +325,116 @@ class TikTokFilterService : AccessibilityService() {
         val videoIdentity = FilterEngine.videoIdentity(texts)
         if (videoIdentity != null && videoIdentity == lastSkippedVideoIdentity) {
             diagnosticLog.log("FILTER", "duplicate skip suppressed for the same video (still transitioning?) - texts=$texts")
-            // One-time warning once this has gone on long enough that "still
-            // transitioning" stops being a plausible explanation - UNCONFIRMED threshold
-            // (STUCK_VIDEO_WARNING_MILLIS), same honesty status as every other threshold
-            // in this file, but a real TikTok transition finishing in under 5s is a much
-            // safer assumption than the alternative (never warning at all). Gated on
-            // stuckVideoWarningLoggedForIdentity so this fires once per stuck episode,
-            // not on every ~300ms re-read for as long as it stays stuck.
-            if (now - lastSkipMillis >= STUCK_VIDEO_WARNING_MILLIS && videoIdentity != stuckVideoWarningLoggedForIdentity) {
-                stuckVideoWarningLoggedForIdentity = videoIdentity
-                val warning = "A skip was attempted ${(now - lastSkipMillis) / 1000}s ago but this " +
-                    "video is still on screen - the swipe may not have actually taken effect. " +
-                    "If this keeps happening, TikTok's gesture handling may need a different " +
-                    "approach here, not another retry."
-                statsRepository.recordEvent(warning)
-                diagnosticLog.log("FILTER", "STUCK VIDEO - $warning")
+            // Escalated (docs/feed_screen_gate/PRD.md ss14) from a one-time warning to a
+            // bounded retry: two real diagnostic logs showed a skip that never actually
+            // took effect, silently suppressed by this guard for as long as ~101
+            // seconds, with nothing ever trying anything different. StuckVideoRetryGuard
+            // owns the retry-vs-give-up decision itself (pure, tested); this just wires
+            // its result to an actual retried gesture or the (now updated) give-up
+            // warning. Reuses lastSkipMillis (already updated on every attempt,
+            // including retries) as "elapsed since last attempt" rather than a second
+            // timestamp field.
+            when (val action = StuckVideoRetryGuard.decide(
+                stuckVideoRetryCount, now - lastSkipMillis, STUCK_VIDEO_WARNING_MILLIS, MAX_STUCK_VIDEO_RETRIES
+            )) {
+                is StuckVideoAction.Retry -> {
+                    if (circuitBreakerTripped(now)) return
+                    stuckVideoRetryCount = action.updatedRetryCount
+                    lastSkipMillis = now
+                    diagnosticLog.log(
+                        "FILTER",
+                        "RETRY ${action.updatedRetryCount}/$MAX_STUCK_VIDEO_RETRIES - video still on " +
+                            "screen, retrying the skip gesture - texts=$texts"
+                    )
+                    performSkipGesture()
+                }
+                StuckVideoAction.GiveUp ->
+                    if (videoIdentity != stuckVideoWarningLoggedForIdentity) {
+                        stuckVideoWarningLoggedForIdentity = videoIdentity
+                        val warning = "A skip was attempted and retried $MAX_STUCK_VIDEO_RETRIES " +
+                            "time(s) but this video is still on screen - the swipe doesn't seem to " +
+                            "be taking effect here. If this keeps happening, TikTok's gesture " +
+                            "handling may need a different approach, not more retries."
+                        statsRepository.recordEvent(warning)
+                        diagnosticLog.log("FILTER", "STUCK VIDEO - $warning")
+                    }
+                StuckVideoAction.KeepWaiting -> {}
             }
             return
         }
-        val (updatedStreak, tripped) = SkipStreakGuard.recordSkip(
-            skipStreakState, now, SKIP_STREAK_WINDOW_MILLIS, MAX_CONSECUTIVE_SKIPS
-        )
-        if (tripped) {
-            // Whatever the actual cause turns out to be - an over-broad keyword, a
-            // video-transition edge case, something not yet seen in a diagnostic log -
-            // this many skips this fast isn't genuinely that many ads/blocked creators
-            // back to back. Pause rather than keep swiping, and say so loudly (Activity,
-            // not just Diagnostic Log) since this is exactly the "out of control" feeling
-            // a silent runaway produces.
-            skipStreakState = SkipStreakState()
-            circuitBreakerTrippedUntilMillis = now + CIRCUIT_BREAKER_PAUSE_MILLIS
-            val warning = "Auto-skip paused for ${CIRCUIT_BREAKER_PAUSE_MILLIS / 1000}s - " +
-                "$MAX_CONSECUTIVE_SKIPS skips happened within ${SKIP_STREAK_WINDOW_MILLIS / 1000}s, " +
-                "which looks like a runaway pattern rather than that many ads/blocked creators " +
-                "genuinely back to back. Check Diagnostic Log's recent FILTER entries to see " +
-                "what kept matching."
-            statsRepository.recordEvent(warning)
-            diagnosticLog.log("FILTER", "CIRCUIT BREAKER TRIPPED - $warning")
-
-            // Escalation: this pause-and-resume is itself supposed to be rare. If it
-            // keeps happening, the pause isn't fixing anything and "paused" isn't what
-            // was actually asked for - see docs/auto_scroll_hard_stop/PRD.md.
-            val (updatedTripHistory, hardStop) = HardStopGuard.recordTrip(
-                tripHistoryState, now, ESCALATION_WINDOW_MILLIS, MAX_TRIPS_IN_ESCALATION_WINDOW
-            )
-            tripHistoryState = if (hardStop) TripHistoryState() else updatedTripHistory
-            if (hardStop) {
-                // A real, persisted stop - not another pause. All three toggles that can
-                // actually produce a SkipDecision (see FilterEngine.evaluate/SkipReason),
-                // not just ad/blocked-creator - see docs/auto_scroll_hard_stop/PRD.md
-                // §3a-P2 for why disabling only two of the three would leave this
-                // silently ineffective if the third is what's actually recurring.
-                settingsRepository.isAdSkipEnabled = false
-                settingsRepository.isBlockedCreatorSkipEnabled = false
-                settingsRepository.isRepeatViewSkipEnabled = false
-                val hardStopWarning = "AUTO-SKIP TURNED OFF: the pause-and-resume safety " +
-                    "net above tripped $MAX_TRIPS_IN_ESCALATION_WINDOW times within " +
-                    "${ESCALATION_WINDOW_MILLIS / 60_000} minutes, meaning something is " +
-                    "still causing a runaway skip pattern even after pausing. Skip ads, " +
-                    "Skip blocked creators, and Repeat-view skip have all been turned OFF " +
-                    "- turn them back on in Filters once you've checked what's wrong. To " +
-                    "help find the actual cause: make sure Diagnostic Logging is on " +
-                    "(Diagnostics), reproduce this, and share the log."
-                statsRepository.recordEvent(hardStopWarning)
-                diagnosticLog.log("FILTER", "HARD STOP - $hardStopWarning")
-            }
-            return
-        }
-        skipStreakState = updatedStreak
+        if (circuitBreakerTripped(now)) return
         diagnosticLog.log("FILTER", "${decision.reason} matched \"${decision.detail}\" - live=$isLive - texts=$texts")
 
         lastSkipMillis = now
         lastSkippedVideoIdentity = videoIdentity
+        stuckVideoRetryCount = 0
         // onScreenRead already ran for this exact event/video above (unconditional,
         // before this branch split) - currentElapsedMillis reads that same, already-
         // synced state, so this is this ad/blocked-creator/repeat-view's own duration,
         // not stale data left over from a previous video (PRD §3/P1, resolved).
         statsRepository.recordSkip(decision, videoWatchTracker.currentElapsedMillis(now))
         performSkipGesture()
+    }
+
+    /** Runs SkipStreakGuard/HardStopGuard for a skip attempt about to happen - a real
+      * skip OR a stuck-video retry (docs/feed_screen_gate/PRD.md ss14) both go through
+      * this, so a retry storm on one stuck video trips the exact same runaway-pattern
+      * safety net a burst of real ad/blocked-creator skips would, rather than being a
+      * second, uncapped path that could bypass it. Returns true if this attempt tripped
+      * the circuit breaker (already handled: paused, warned, possibly hard-stopped) -
+      * the caller must NOT perform the skip gesture when this returns true. */
+    private fun circuitBreakerTripped(now: Long): Boolean {
+        val (updatedStreak, tripped) = SkipStreakGuard.recordSkip(
+            skipStreakState, now, SKIP_STREAK_WINDOW_MILLIS, MAX_CONSECUTIVE_SKIPS
+        )
+        if (!tripped) {
+            skipStreakState = updatedStreak
+            return false
+        }
+        // Whatever the actual cause turns out to be - an over-broad keyword, a
+        // video-transition edge case, something not yet seen in a diagnostic log -
+        // this many skips this fast isn't genuinely that many ads/blocked creators
+        // back to back. Pause rather than keep swiping, and say so loudly (Activity,
+        // not just Diagnostic Log) since this is exactly the "out of control" feeling
+        // a silent runaway produces.
+        skipStreakState = SkipStreakState()
+        circuitBreakerTrippedUntilMillis = now + CIRCUIT_BREAKER_PAUSE_MILLIS
+        val warning = "Auto-skip paused for ${CIRCUIT_BREAKER_PAUSE_MILLIS / 1000}s - " +
+            "$MAX_CONSECUTIVE_SKIPS skips happened within ${SKIP_STREAK_WINDOW_MILLIS / 1000}s, " +
+            "which looks like a runaway pattern rather than that many ads/blocked creators " +
+            "genuinely back to back. Check Diagnostic Log's recent FILTER entries to see " +
+            "what kept matching."
+        statsRepository.recordEvent(warning)
+        diagnosticLog.log("FILTER", "CIRCUIT BREAKER TRIPPED - $warning")
+
+        // Escalation: this pause-and-resume is itself supposed to be rare. If it
+        // keeps happening, the pause isn't fixing anything and "paused" isn't what
+        // was actually asked for - see docs/auto_scroll_hard_stop/PRD.md.
+        val (updatedTripHistory, hardStop) = HardStopGuard.recordTrip(
+            tripHistoryState, now, ESCALATION_WINDOW_MILLIS, MAX_TRIPS_IN_ESCALATION_WINDOW
+        )
+        tripHistoryState = if (hardStop) TripHistoryState() else updatedTripHistory
+        if (hardStop) {
+            // A real, persisted stop - not another pause. All three toggles that can
+            // actually produce a SkipDecision (see FilterEngine.evaluate/SkipReason),
+            // not just ad/blocked-creator - see docs/auto_scroll_hard_stop/PRD.md
+            // §3a-P2 for why disabling only two of the three would leave this
+            // silently ineffective if the third is what's actually recurring.
+            settingsRepository.isAdSkipEnabled = false
+            settingsRepository.isBlockedCreatorSkipEnabled = false
+            settingsRepository.isRepeatViewSkipEnabled = false
+            val hardStopWarning = "AUTO-SKIP TURNED OFF: the pause-and-resume safety " +
+                "net above tripped $MAX_TRIPS_IN_ESCALATION_WINDOW times within " +
+                "${ESCALATION_WINDOW_MILLIS / 60_000} minutes, meaning something is " +
+                "still causing a runaway skip pattern even after pausing. Skip ads, " +
+                "Skip blocked creators, and Repeat-view skip have all been turned OFF " +
+                "- turn them back on in Filters once you've checked what's wrong. To " +
+                "help find the actual cause: make sure Diagnostic Logging is on " +
+                "(Diagnostics), reproduce this, and share the log."
+            statsRepository.recordEvent(hardStopWarning)
+            diagnosticLog.log("FILTER", "HARD STOP - $hardStopWarning")
+        }
+        return true
     }
 
     /** Subject Boost: if enabled and the current video's on-screen text matches a
@@ -499,7 +540,24 @@ class TikTokFilterService : AccessibilityService() {
         val gesture = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(path, 0, SWIPE_DURATION_MILLIS))
             .build()
-        dispatchGesture(gesture, null, null)
+        // CONFIRMED REAL GAP, found while investigating the stuck-video retry problem
+        // (docs/feed_screen_gate/PRD.md ss14): this call previously passed null for the
+        // completion callback, meaning even a DISPATCH-level failure (the OS itself
+        // cancelling the gesture, e.g. because another gesture was already in flight)
+        // was invisible - indistinguishable in the log from TikTok simply not responding
+        // to a gesture that WAS delivered. onCompleted is intentionally not logged (the
+        // expected case on every normal skip - would just add a line to every single
+        // skip for no diagnostic value); onCancelled is the previously-invisible failure
+        // mode this surfaces.
+        dispatchGesture(gesture, object : GestureResultCallback() {
+            override fun onCancelled(gestureDescription: GestureDescription?) {
+                diagnosticLog.log(
+                    "FILTER",
+                    "swipe gesture CANCELLED by the system before completing - a dispatch-level " +
+                        "failure, not just TikTok failing to respond to it"
+                )
+            }
+        }, null)
     }
 
     companion object {
@@ -509,7 +567,16 @@ class TikTokFilterService : AccessibilityService() {
         private const val OVERLAY_HIDE_DELAY_MILLIS = 800L
         // UNCONFIRMED, reasonable-sounding threshold, same honesty status as every other
         // one in this file - see stuckVideoWarningLoggedForIdentity's own field comment.
+        // Also reused as the spacing between stuck-video retries (docs/feed_screen_gate/
+        // PRD.md ss14) - a real TikTok transition finishing in under 5s is a much safer
+        // assumption than the alternative (retrying too eagerly, mid-transition).
         private const val STUCK_VIDEO_WARNING_MILLIS = 5_000L
+        // UNCONFIRMED, reasonable-sounding guess (docs/feed_screen_gate/PRD.md ss14): a
+        // gesture that failed once with the exact same shape is unlikely to succeed on
+        // a 4th or 5th identical attempt if it didn't on the first couple - 2 retries (3
+        // attempts total, including the original) bounds a stuck episode without
+        // retrying indefinitely if retrying isn't actually the fix.
+        private const val MAX_STUCK_VIDEO_RETRIES = 2
         // Runaway auto-skip circuit breaker (see SkipStreakGuard) - UNCONFIRMED, reasonable-
         // sounding thresholds, same honesty status as every other threshold in this app.
         // 8 skips within 15s is well beyond what even a genuinely bad ad-heavy stretch of
