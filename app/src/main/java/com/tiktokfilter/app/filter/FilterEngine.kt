@@ -90,7 +90,7 @@ object FilterEngine {
         }
         if (adKeywordsEnabled) {
             val matchedKeyword = adKeywords.firstOrNull { keyword ->
-                keyword.isNotBlank() && visibleVideoTexts.any { it.contains(keyword, ignoreCase = true) }
+                keyword.isNotBlank() && visibleVideoTexts.any { containsWholeWord(it, keyword) }
             }
             if (matchedKeyword != null) {
                 return SkipDecision(SkipReason.AD, matchedKeyword)
@@ -119,9 +119,30 @@ object FilterEngine {
         if (meaningfulSubjects.isEmpty()) return false
         val visibleVideoTexts = currentVideoTexts(screenTexts)
         return meaningfulSubjects.any { subject ->
-            visibleVideoTexts.any { it.contains(subject, ignoreCase = true) }
+            visibleVideoTexts.any { containsWholeWord(it, subject) }
         }
     }
+
+    /** Whole-word/whole-phrase match: true when [keyword] appears in [text] as its own
+      * token, bounded by whitespace/punctuation or the start/end of [text] - not merely
+      * as a substring of a longer word. CONFIRMED REAL BUG this fixes (real diagnostic
+      * log, docs/feed_screen_gate/PRD.md): a driver's configured Ad Keyword "Ad" matched
+      * as a plain substring inside TikTok's own ubiquitous "Add or remove this video from
+      * Favourites." chrome text (present on nearly every video, ad or not), and inside
+      * "Add comment..." (the comments-panel input placeholder) and "Podcast Addict" (an
+      * unrelated app name on the Android Recents screen) - meaning the keyword fired on
+      * ordinary videos, an open comments panel, and even a non-TikTok screen, not just
+      * real ads. Case-insensitive, matching every other keyword check in this file. Falls
+      * back to a plain substring check if [keyword] can't compile as a regex
+      * (Regex.escape prevents that in practice, but a driver-entered keyword is untrusted
+      * input, not something to trust blindly) - never crash on it, same defensive stance
+      * this app already takes toward TikTok's own screen text. */
+    private fun containsWholeWord(text: String, keyword: String): Boolean =
+        try {
+            Regex("(?i)\\b${Regex.escape(keyword)}\\b").containsMatchIn(text)
+        } catch (e: Exception) {
+            text.contains(keyword, ignoreCase = true)
+        }
 
     /** Truncates [screenTexts] to just the current video's own contiguous block - from
       * the start of the list up to (but not including) the *second* "<name> profile"
