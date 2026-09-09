@@ -111,6 +111,25 @@ class FilterEngineTest {
     }
 
     @Test
+    fun `a punctuation-only keyword falls back to plain substring matching, not word-boundary`() {
+        // CONFIRMED REAL edge case, found while reusing containsWholeWord for
+        // TikTokActionCoordinator's menu-button matching: the real default live-room
+        // "more options" button keyword is "..." (three dots) - wrapping a keyword with
+        // no letters/digits in \b...\b would never match anything at all (a word
+        // boundary requires a word character on at least one side), silently breaking
+        // this keyword completely rather than just failing to narrow it. containsWholeWord
+        // must fall back to a plain substring check for a keyword shaped like this.
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf("@brand_official", "Watch till the end...", "a caption"),
+            adKeywordsEnabled = true,
+            adKeywords = listOf("..."),
+            blockedCreatorsEnabled = false,
+            blockedCreators = emptySet()
+        )
+        assertEquals(SkipReason.AD, decision?.reason)
+    }
+
+    @Test
     fun `blocked creator handle fires BLOCKED_CREATOR`() {
         val decision = FilterEngine.evaluate(
             screenTexts = listOf("@annoying_account", "some caption text", "42 comments"),

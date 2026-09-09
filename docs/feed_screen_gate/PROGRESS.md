@@ -118,3 +118,55 @@ logic was correct. PR #2's `mergeable_state` is `clean`.
 
 Remaining PRD §6 boxes: driver confirms with a real Diagnostic Log, and
 driver sign-off.
+
+## Follow-up investigation + implementation (2026-09-09)
+
+Driver asked what the diagnostic log does and doesn't cover. Audited
+every file's coverage (which files call `diagnosticLog.log`, whether
+every real failure/decision path in the ones that don't actually needs
+it) and found two more real gaps - written up as PRD §7, same
+document since both trace back to the same audit and one directly
+reuses this PR's own fix.
+
+**`DownloadedVideoLocator.findRecentlyAddedVideo`**: no exception guard
+at all - `contentResolver.query()` can throw (most plausibly a
+`SecurityException` on a denied/revoked media-read permission), reached
+via a main-thread `postDelayed` callback with no surrounding try/catch
+either, meaning an uncaught exception there crashes the app with zero
+diagnostic trace. Fixed by wrapping the call site in
+`TikTokActionCoordinator.locateAndExtractAudio`: logs via
+`diagnosticLog.logError` and gives up immediately (a permission error
+won't fix itself by retrying `MAX_LOCATE_ATTEMPTS` times).
+
+**`TikTokActionCoordinator.findAndClickNode`**: the exact same
+plain-substring keyword-matching bug this PRD already fixed once for ad
+keywords (§1.3), just not yet caught in a real log - used to find and
+tap Block/Download/Live-menu buttons. Fixed by reusing
+`FilterEngine.containsWholeWord` directly (changed from `private` to
+`internal`) instead of duplicating the fix.
+
+Applying the shared fix here surfaced a real edge case §1's own
+investigation never needed to consider:
+`DEFAULT_LIVE_MORE_OPTIONS_KEYWORDS` ships `"..."` (three literal dots)
+as a real keyword. A keyword made entirely of punctuation has no
+letters/digits, so wrapping it in `\b...\b` would never match anything
+at all - `\b` requires a word character on at least one side of the
+boundary. `containsWholeWord` now checks
+`keyword.none { it.isLetterOrDigit() }` and falls back to plain
+substring matching for that shape of keyword, closing the exact risk
+PRD §3a's premortem P1 had already flagged as disclosed-but-not-solved
+for the original ad/subject-keyword fix too.
+
+Added one new test (`a punctuation-only keyword falls back to plain
+substring matching, not word-boundary`, using the real `"..."`
+default). Traced every real default keyword list in
+`SettingsRepository` by hand against the new matching behavior - only
+`"..."` needed the fallback, every other default still matches exactly
+as before. `findAndClickNode` itself isn't independently
+unit-testable (operates on real `AccessibilityNodeInfo`) - its
+correctness now rides entirely on `containsWholeWord`, already fully
+covered by `FilterEngineTest.kt`.
+
+Pushed for the real CI to confirm. Remaining PRD §8 boxes: CI
+confirmation (update this entry once green), driver confirms, driver
+sign-off.

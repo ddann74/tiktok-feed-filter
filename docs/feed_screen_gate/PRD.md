@@ -308,3 +308,90 @@ New tests, added to `FilterEngineTest.kt`, matching its existing style:
       `"Add or remove this video from Favourites."`, the comments
       panel, or the Recents screen
 - [ ] Driver sign-off
+
+## 7. Follow-up (2026-09-09): two more real gaps found auditing the diagnostic log's own coverage
+
+Driver asked what the diagnostic log does and doesn't check for. Auditing
+every file's coverage (which files call `diagnosticLog.log`, and whether
+every real failure/decision path in the ones that don't actually needs
+it) turned up two more real, previously-unfound problems - not logging
+gaps exactly, but the same "silently wrong with no trace" class this
+whole PRD is about.
+
+### 7.1 `DownloadedVideoLocator.findRecentlyAddedVideo` had no exception guard at all
+
+`contentResolver.query()` can throw - most plausibly a `SecurityException`
+if the media-read permission was denied or later revoked in system
+settings. Called from `TikTokActionCoordinator.locateAndExtractAudio`, a
+main-thread `Handler.postDelayed` callback with no surrounding try/catch
+of its own either - an uncaught exception there crashes the whole app
+process, and since it's reached before any `diagnosticLog` call, nothing
+would explain why. Fixed by wrapping the call, logging via
+`diagnosticLog.logError`, and giving up immediately (not retrying
+`MAX_LOCATE_ATTEMPTS` times against a permission error retrying can't
+fix) - same shape as the existing "gave up after N attempts" path just
+below it.
+
+### 7.2 `TikTokActionCoordinator.findAndClickNode` had the identical plain-substring bug this PRD already fixed once
+
+The function that finds and taps Block/Download/Live-menu buttons used
+the exact same `text.contains(keyword, ignoreCase = true)` pattern
+`evaluate()`'s ad-keyword check had (§1.3) - a `"Block"` stage keyword
+could match as a substring of an unrelated word containing "block", the
+same failure class, just not yet caught in a real log. Fixed by reusing
+`FilterEngine.containsWholeWord` directly (changed from `private` to
+`internal`) rather than duplicating the fix - one shared implementation
+that can't drift between the two call sites.
+
+**Real edge case found applying the shared fix, not present in §1's own
+list**: `SettingsRepository.DEFAULT_LIVE_MORE_OPTIONS_KEYWORDS` includes
+`"..."` (three literal dots) as a real, shipped default keyword. `\b`
+only matches at a transition between a word character and a non-word
+character - a keyword made entirely of punctuation has no letters/digits
+anywhere, so wrapping it in `\b...\b` would never match ANYTHING,
+silently breaking that keyword completely rather than merely failing to
+narrow it. `containsWholeWord` now checks
+`keyword.none { it.isLetterOrDigit() }` first and falls back to plain
+substring matching for a keyword shaped like that - correct, since
+there's no meaningful "embedded inside a longer word" risk for a
+punctuation-only token in the first place. This also strengthens the
+original §1.3 fix against premortem P1's own disclosed risk (a keyword
+without well-defined regex word boundaries), for any driver-configured
+ad/subject keyword shaped the same way, not just this one default.
+
+### Testing
+
+- New test: `a punctuation-only keyword falls back to plain substring
+  matching, not word-boundary` (`FilterEngineTest.kt`), using the real
+  `"..."` default as its keyword.
+- `findAndClickNode` itself isn't independently unit-testable (it
+  operates on real `AccessibilityNodeInfo`, not mockable here) - its
+  correctness now rides entirely on `containsWholeWord`, which is fully
+  covered by `FilterEngineTest.kt`.
+- Traced every real default keyword list in `SettingsRepository`
+  (`DEFAULT_MORE_OPTIONS_KEYWORDS`, `DEFAULT_BLOCK_OPTION_KEYWORDS`,
+  `DEFAULT_BLOCK_CONFIRM_KEYWORDS`, `DEFAULT_DOWNLOAD_OPTION_KEYWORDS`,
+  `DEFAULT_LIKE_OPTION_KEYWORDS`, `DEFAULT_LIVE_MORE_OPTIONS_KEYWORDS`)
+  by hand against the new matching behavior - only `"..."` needed the
+  punctuation fallback; every other default keyword still matches
+  exactly as before.
+- Same disclosed limitation as everywhere else in this repo: no
+  Kotlin/JVM toolchain in this sandbox - traced by hand, pushed for the
+  real CI to confirm.
+
+## 8. Success criteria for §7
+
+- [x] `DownloadedVideoLocator.findRecentlyAddedVideo`'s call site wrapped
+      in try/catch, logs via `logError`, gives up immediately (no
+      pointless retries against a permission error)
+- [x] `containsWholeWord` made `internal`, reused by
+      `TikTokActionCoordinator.findAndClickNode`
+- [x] Punctuation-only-keyword fallback added and covered by a new test
+      using the real `"..."` default
+- [x] Every real default keyword list in `SettingsRepository` traced by
+      hand against the new matching behavior
+- [ ] CI green on the real commit
+- [ ] Driver confirms: Block/Download/Live automations still work as
+      before, and a forced media-permission failure now shows a real
+      `EXTRACT` line instead of a crash
+- [ ] Driver sign-off
