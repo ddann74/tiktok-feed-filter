@@ -25,20 +25,47 @@ class StatsRepository(context: Context) {
         return raw.split("\n").filter { it.isNotBlank() }
     }
 
-    fun recordSkip(decision: SkipDecision) {
+    /** [watchDurationMillis]: how long this video was on screen before the skip fired
+      * (docs/video_category_watch_tracking/PRD.md §2.1) - enriches the existing skip
+      * line rather than adding a new Activity log entry, so the new per-video category
+      * tracking feature adds zero volume for Ad/BlockedCreator/RepeatView (all three
+      * already had their own line before that PRD existed). Null (the default) keeps
+      * every pre-existing caller/test compiling unchanged and produces the exact same
+      * entry text as before. */
+    fun recordSkip(decision: SkipDecision, watchDurationMillis: Long? = null) {
         val counterKey = when (decision.reason) {
             SkipReason.AD -> KEY_ADS_SKIPPED
             SkipReason.BLOCKED_CREATOR -> KEY_CREATORS_SKIPPED
             SkipReason.REPEAT_VIEW -> KEY_REPEAT_VIEWS_SKIPPED
         }
         val newCount = prefs.getInt(counterKey, 0) + 1
-        val entry = when (decision.reason) {
+        val baseEntry = when (decision.reason) {
             SkipReason.AD -> "Ad skipped (matched \"${decision.detail}\")"
             SkipReason.BLOCKED_CREATOR -> "Blocked creator skipped (${decision.detail})"
             SkipReason.REPEAT_VIEW -> "Repeat video skipped (${decision.detail})"
         }
+        val entry = if (watchDurationMillis != null) {
+            "$baseEntry - on screen ${watchDurationMillis / 1000}s"
+        } else {
+            baseEntry
+        }
         prefs.edit().putInt(counterKey, newCount).apply()
         appendLogEntry(entry)
+    }
+
+    /** New per-video category tracking entry (docs/video_category_watch_tracking/
+      * PRD.md §2.1/§3) - Unidentified videos are expected to be rare, so every
+      * occurrence gets logged, unlike Post below. */
+    fun recordUnidentifiedWatch(durationMillis: Long) {
+        appendLogEntry("Unidentified video watched ${durationMillis / 1000}s")
+    }
+
+    /** New per-video category tracking entry (docs/video_category_watch_tracking/
+      * PRD.md §2.1/§3) - the caller only invokes this once a Post's capped duration has
+      * already crossed the "was this actually watched" threshold (§2.1/P3), so every
+      * call here is expected to be a real entry, not filtered further here. */
+    fun recordPostWatch(durationMillis: Long) {
+        appendLogEntry("Post watched ${durationMillis / 1000}s")
     }
 
     /** Subject Boost's auto-like counter - separate from [recordSkip] since this isn't a

@@ -13,9 +13,12 @@ import com.tiktokfilter.app.diagnostics.DiagnosticLog
 import com.tiktokfilter.app.filter.FilterEngine
 import com.tiktokfilter.app.filter.HardStopGuard
 import com.tiktokfilter.app.filter.RepeatViewRepository
+import com.tiktokfilter.app.filter.SkipReason
 import com.tiktokfilter.app.filter.SkipStreakGuard
 import com.tiktokfilter.app.filter.SkipStreakState
 import com.tiktokfilter.app.filter.TripHistoryState
+import com.tiktokfilter.app.filter.VideoCategory
+import com.tiktokfilter.app.filter.VideoWatchTracker
 import com.tiktokfilter.app.overlay.OverlayController
 import com.tiktokfilter.app.tiktokactions.DownloadMode
 import com.tiktokfilter.app.tiktokactions.TikTokActionCoordinator
@@ -75,6 +78,12 @@ class TikTokFilterService : AccessibilityService() {
     // docs/auto_scroll_hard_stop/PRD.md. A pause that repeats forever isn't "stopped",
     // which is what was actually reported after the circuit breaker alone shipped.
     private var tripHistoryState = TripHistoryState()
+    // Per-video category (Ad/BlockedCreator/RepeatView/Post/Unidentified) + watch-
+    // duration tracking - docs/video_category_watch_tracking/PRD.md. In-memory only,
+    // same as every other piece of state in this file (PRD §5's own leaning) - an
+    // accessibility service restarting mid-video already loses its own book-keeping for
+    // every other feature here, this isn't a new category of limitation.
+    private val videoWatchTracker = VideoWatchTracker(MAX_TRACKED_WATCH_DURATION_MILLIS)
 
     private val mainHandler = Handler(Looper.getMainLooper())
     // A single reusable Runnable so scheduling it again (or cancelling it) always
@@ -189,6 +198,13 @@ class TikTokFilterService : AccessibilityService() {
 
         val isLive = FilterEngine.isLiveStream(texts, settingsRepository.liveIndicatorKeywords)
 
+        // Unconditional, per-event identity computation for the NEW per-video category/
+        // watch-duration tracker (docs/video_category_watch_tracking/PRD.md §1/§3) -
+        // deliberately a SEPARATE call from the one the existing skip-dedup guard uses
+        // further down (lastSkippedVideoIdentity), so this feature can't change that
+        // guard's own behavior even if this call's timing ever needs to diverge.
+        val trackedVideoIdentity = FilterEngine.videoIdentity(texts)
+
         // Repeat-view skip: excluded on a Live room the same way Subject Boost/Download
         // already are - a live broadcast isn't a repeatable "video" the way a normal FYP
         // post is, and a Live room's constantly-changing viewer count/comments would make
@@ -209,6 +225,39 @@ class TikTokFilterService : AccessibilityService() {
             repeatViewCount = repeatViewCount,
             repeatViewLimit = settingsRepository.repeatViewLimit
         )
+
+        // Category classification (PRD §1's five-way mapping) + the tracker call itself,
+        // UNCONDITIONAL and FIRST, before the skip/no-match branches below - this is what
+        // makes videoWatchTracker.currentElapsedMillis(now) safe to call later in the
+        // decision != null branch (the tracker's state already reflects THIS video/event).
+        val category = when (decision?.reason) {
+            SkipReason.AD -> VideoCategory.AD
+            SkipReason.BLOCKED_CREATOR -> VideoCategory.BLOCKED_CREATOR
+            SkipReason.REPEAT_VIEW -> VideoCategory.REPEAT_VIEW
+            null -> if (trackedVideoIdentity == null) VideoCategory.UNIDENTIFIED else VideoCategory.POST
+        }
+        val finishedWatch = videoWatchTracker.onScreenRead(trackedVideoIdentity, category, now)
+        if (finishedWatch != null) {
+            when (finishedWatch.category) {
+                // Ad/BlockedCreator/RepeatView already got their own enriched skip line
+                // at the exact moment they were skipped (see currentElapsedMillis below,
+                // in the decision != null branch) - a FinishedWatch for one of these
+                // here, reported later on the NEXT video's transition, would just be a
+                // stale duplicate of that same skip. No-op by design (§3), not an
+                // oversight.
+                VideoCategory.AD, VideoCategory.BLOCKED_CREATOR, VideoCategory.REPEAT_VIEW -> {}
+                VideoCategory.UNIDENTIFIED ->
+                    statsRepository.recordUnidentifiedWatch(finishedWatch.durationMillis)
+                VideoCategory.POST ->
+                    // §2.1/P3: only log a Post once its capped duration crosses the
+                    // "was this actually watched" threshold - avoids flooding the
+                    // 50-entry Activity log cap with every single video scrolled past.
+                    if (finishedWatch.durationMillis >= POST_WATCH_MIN_MILLIS) {
+                        statsRepository.recordPostWatch(finishedWatch.durationMillis)
+                    }
+            }
+        }
+
         if (decision == null) {
             // A genuine, non-skipped view - real evidence browsing is progressing
             // normally, not stuck in a skip loop, so any in-progress skip streak is stale.
@@ -336,7 +385,11 @@ class TikTokFilterService : AccessibilityService() {
 
         lastSkipMillis = now
         lastSkippedVideoIdentity = videoIdentity
-        statsRepository.recordSkip(decision)
+        // onScreenRead already ran for this exact event/video above (unconditional,
+        // before this branch split) - currentElapsedMillis reads that same, already-
+        // synced state, so this is this ad/blocked-creator/repeat-view's own duration,
+        // not stale data left over from a previous video (PRD §3/P1, resolved).
+        statsRepository.recordSkip(decision, videoWatchTracker.currentElapsedMillis(now))
         performSkipGesture()
     }
 
@@ -470,5 +523,15 @@ class TikTokFilterService : AccessibilityService() {
         // scrolling" after the circuit breaker shipped is exactly this pattern.
         private const val MAX_TRIPS_IN_ESCALATION_WINDOW = 3
         private const val ESCALATION_WINDOW_MILLIS = 5 * 60_000L
+        // Per-video watch-duration tracking (docs/video_category_watch_tracking/PRD.md
+        // §0.4/§3a-P5) - UNCONFIRMED, reasonable-sounding guesses, same honesty status
+        // as every other threshold in this file. 5 minutes bounds the "app was
+        // backgrounded mid-video" gap (no accessibility events fire while TikTok isn't
+        // foreground, so there's no direct signal for that) without letting one
+        // background stretch report as an absurd multi-hour "watch"; 3 seconds is the
+        // driver's own "start with that" answer (§5/P3) for what counts as a genuinely
+        // watched Post rather than one scrolled past.
+        private const val MAX_TRACKED_WATCH_DURATION_MILLIS = 5 * 60_000L
+        private const val POST_WATCH_MIN_MILLIS = 3_000L
     }
 }
