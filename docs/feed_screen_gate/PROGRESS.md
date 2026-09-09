@@ -383,3 +383,17 @@ https://github.com/ddann74/tiktok-feed-filter/actions/runs/34342884331/job/10243
 
 Remaining PRD §17 boxes: driver confirms with a real session,
 driver sign-off.
+
+## Additional confirming data point (2026-09-09): diagnostics13.log
+
+Driver sent another log while PR #8 was mid-flight, from BEFORE the
+fix was merged/rebuilt (37 of 42 "AD matched" events, 88%, same false-
+positive rate as diagnostics12.log - consistent, not new information).
+
+One reinforcing detail worth keeping for ss16.3's open "gesture
+CANCELLED" question: 16 cancellations this time, and several fire with
+NO preceding RETRY line adjacent to them (e.g. three in a row at
+20:57:02-20:57:03 with no RETRY in between) - the correlation isn't
+purely "retries collide with themselves." Still not chased this round;
+strengthens the case that this deserves real investigation once the
+higher-priority word-boundary fix (§16) is confirmed deployed.
