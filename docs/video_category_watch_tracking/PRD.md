@@ -1,6 +1,8 @@
 # PRD: Track every video by category (Ad / Post / Unidentified) and how long it was on screen
 
-Status: DRAFT - awaiting sign-off before implementation begins.
+Status: APPROVED - driver answered ss5's open questions (2026-09-09),
+implementation underway. See ss5 for the answers and ss1/ss2.1/ss3 for
+how each one changed the design from the original DRAFT.
 Scope: this one feature only. Not a general codebase pass.
 
 ## 0. What this is / isn't
@@ -30,22 +32,24 @@ implemented.
 
 ## 1. What "category" maps to in the existing code
 
-This app already computes exactly this distinction on every single
-accessibility event, just not as a named concept:
+**Updated 2026-09-09 per driver's ss5/P2 answer ("separate category"):**
+`BLOCKED_CREATOR` and `REPEAT_VIEW` each get their own category rather
+than folding into Post. Five categories total, each mapping 1:1 onto a
+distinction this app already computes on every accessibility event -
+just not as one named concept before now:
 
 - **Ad** = `FilterEngine.evaluate(...)?.reason == SkipReason.AD`.
-- Everything else that produces a `SkipDecision` (`BLOCKED_CREATOR`,
-  `REPEAT_VIEW`) is still identified, real content - a blocked
-  creator's video or a repeat view is a **Post** you chose to skip for
-  an unrelated reason, not an ad. **Design decision, stated plainly so
-  it can be corrected**: those two skip reasons count as Post, not
-  their own fourth category - driver may want them split out
-  separately; flagged as an open question (§5).
+- **BlockedCreator** = `FilterEngine.evaluate(...)?.reason == SkipReason.BLOCKED_CREATOR`.
+- **RepeatView** = `FilterEngine.evaluate(...)?.reason == SkipReason.REPEAT_VIEW`.
 - **Unidentified** = `FilterEngine.videoIdentity(texts) == null` (see
   that function's own doc: null only when there's truly nothing to
-  identify the video by - no creator handle, no usable caption).
+  identify the video by - no creator handle, no usable caption). Takes
+  priority over the three `SkipDecision`-based categories above only in
+  the sense that those three already imply a non-null identity
+  (`evaluate` itself reads from the same text block); this case is
+  reached when there's no `SkipDecision` at all AND no identity.
 - **Post** (the "genuine view" case) = everything else -
-  `videoIdentity(texts) != null` and not an Ad.
+  `videoIdentity(texts) != null` and no `SkipDecision` fired.
 
 `videoIdentity`, not `videoFingerprint`, is proposed as the ONE identity
 this feature keys off - it's already the more robust of this file's two
@@ -76,12 +80,18 @@ log" would make the Activity log materially LESS useful for its
 existing purpose, not more useful for this new one - a real regression,
 not a hypothetical one.
 
-### 2.1 Proposed resolution (recommended, not yet driver-confirmed)
+### 2.1 Resolution (driver-confirmed 2026-09-09)
 
-- **Ad**: no new entry - enrich the EXISTING skip log line
-  (`StatsRepository.recordSkip`'s `"Ad skipped (matched \"...\")"`)
-  with how long the video was on screen before the skip fired. Zero
-  added volume.
+- **Ad, BlockedCreator, RepeatView**: no new entry for any of the
+  three - each already produces its own `StatsRepository.recordSkip`
+  line today (`"Ad skipped (matched \"...\")"`,
+  `"Blocked creator skipped"`, `"Repeat view skipped"`). Enrich that
+  EXISTING line with how long the video was on screen before the skip
+  fired. Zero added volume for all three, not just Ad - the ss5/P2
+  "separate category" answer is free here precisely because these
+  three already had their own log line before this PRD existed; only
+  the enrichment (duration) and the in-memory category bookkeeping are
+  new.
 - **Unidentified**: log every occurrence. Expected to be rare (most
   videos have SOME identifiable creator/caption) - low volume by
   construction, not an assumption this PRD takes on faith; §4's testing
@@ -89,11 +99,13 @@ not a hypothetical one.
   already on hand.
 - **Post**: do NOT log every single one - the volume driver. Only log a
   Post entry once its capped duration crosses a real "was this actually
-  watched" threshold (proposed: 3 seconds, UNCONFIRMED, same honesty
-  status as every threshold in this app - a video scrolled past in
-  under 3s was arguably never really "watched" in the sense the driver
-  is asking to track). A video watched for less than that produces no
-  Activity entry at all, same as today.
+  watched" threshold. Driver's ss5/P3 answer ("start with that"): ship
+  with the proposed 3 seconds as the initial value rather than block
+  implementation on calibrating it further - still UNCONFIRMED against
+  a full real-world session, same honesty status as every threshold in
+  this app, adjustable later if the driver reports it's wrong in either
+  direction. A video watched for less than that produces no Activity
+  entry at all, same as today.
 
 This is a real, disclosed DEVIATION from a literal "log every video"
 reading of the driver's own chosen answer (§0.2) - flagged prominently
@@ -116,7 +128,7 @@ New pure class `VideoWatchTracker` (no Android dependency, same
 `ActionSequence` in this same repo):
 
 ```kotlin
-enum class VideoCategory { AD, POST, UNIDENTIFIED }
+enum class VideoCategory { AD, BLOCKED_CREATOR, REPEAT_VIEW, POST, UNIDENTIFIED }
 
 data class FinishedWatch(val category: VideoCategory, val durationMillis: Long)
 
@@ -171,17 +183,17 @@ class VideoWatchTracker(private val maxDurationMillis: Long) {
 
 Wired into `TikTokFilterService.onAccessibilityEvent`: compute
 `videoIdentity` unconditionally right after `isLive` (§1), determine
-`category` from it + `decision`, call `tracker.onScreenRead(...)`
-UNCONDITIONALLY and FIRST on every event (before any skip/no-match
-branch), and:
+`category` from it + `decision` per §1's five-way mapping, call
+`tracker.onScreenRead(...)` UNCONDITIONALLY and FIRST on every event
+(before any skip/no-match branch), and:
 
-- If `decision.reason == AD` (about to skip right now): read
-  `tracker.currentElapsedMillis(now)` and pass it into
-  `StatsRepository.recordSkip`'s enriched Ad line (§2.1) - correct
-  because `onScreenRead` was just called this same event, so the
-  tracker's state already reflects this exact ad (freshly started if
-  first seen, correctly accumulated if this is a repeated/stuck read of
-  the same one).
+- If `decision != null` (Ad, BlockedCreator, or RepeatView - about to
+  skip right now): read `tracker.currentElapsedMillis(now)` and pass it
+  into `StatsRepository.recordSkip`'s enriched line for that reason
+  (§2.1) - correct because `onScreenRead` was just called this same
+  event, so the tracker's state already reflects this exact video
+  (freshly started if first seen, correctly accumulated if this is a
+  repeated/stuck read of the same one).
 - Otherwise, when `onScreenRead` returned a non-null `FinishedWatch`
   (a real transition away from whatever was previously tracked): apply
   §2.1's Unidentified/Post logging rules to that finished entry.
@@ -197,23 +209,19 @@ branch), and:
   to call in the same event, since `onScreenRead` just synced the
   tracker's state to whatever this event is looking at - gets the Ad's
   own duration at the exact moment its skip fires.
-- **P2 - BLOCKED_CREATOR/REPEAT_VIEW folded into "Post" (§1) may not be
-  what the driver meant.** "Whether it's an ad or a post or
-  unidentified" was the driver's own phrasing, but a blocked creator's
-  video and a normal genuinely-watched video are both currently mapped
-  to the same "Post" bucket despite being handled very differently by
-  the rest of this app. If the driver actually wants those distinguished,
-  this needs a fourth/fifth category, not a design change to the
-  Ad/Post/Unidentified split itself.
-- **P3 - the 3-second Post-logging threshold (§2.1) is itself an
-  UNCONFIRMED guess, and picking it wrong defeats the whole feature in
-  either direction.** Too low: back to the flooding problem §2 found.
-  Too high: genuinely-watched shorter videos never get an entry at all,
-  silently undercounting exactly the data the driver asked to track.
-  No real diagnostic log with actual per-video dwell times exists yet
-  to calibrate this against - same "reasonable-sounding, not confirmed"
-  status as every other threshold in this app, disclosed rather than
-  presented as tested.
+- **P2 - RESOLVED (driver, 2026-09-09: "separate category").**
+  `BLOCKED_CREATOR` and `REPEAT_VIEW` each get their own
+  `VideoCategory` value (§1, §3) rather than folding into Post. Turned
+  out free from a logging-volume standpoint (§2.1) since both already
+  had their own `recordSkip` line before this PRD existed.
+- **P3 - RESOLVED for v1 (driver, 2026-09-09: "start with that").**
+  Ship with the proposed 3 seconds as-is rather than block
+  implementation on further calibration. Still flagged as UNCONFIRMED
+  against a full real-world session (§2.1) - picking it wrong in either
+  direction (too low: back to the flooding problem §2 found; too high:
+  genuinely-watched shorter videos silently undercounted) remains a
+  real risk, just one the driver has chosen to accept for v1 and adjust
+  later if it's visibly wrong rather than delay shipping on it.
 - **P4 - `videoIdentity` computed unconditionally, every single event,
   is new CPU work on every accessibility callback, not just skip
   events.** `videoIdentity`'s own fallback path (when `extractHandle`
@@ -231,22 +239,24 @@ branch), and:
   ~10s) - the cap bounds the damage, it doesn't produce a correct
   number. Worth stating plainly in whatever surfaces this data, not
   presented as precise.
-- **P6 - found re-tracing §3's design a second time: a video's category
-  can only change on an IDENTITY transition in the current design, but
-  category and identity aren't actually guaranteed to move together.**
+- **P6 - RESOLVED for v1 (driver, 2026-09-09: "yes for now").** Found
+  re-tracing §3's design a second time: a video's category can only
+  change on an IDENTITY transition in the current design, but category
+  and identity aren't actually guaranteed to move together.
   `onScreenRead` only updates `trackedCategory` when `effectiveIdentity`
   changes - if the SAME video is read first as POST (no ad marker
   rendered yet) and only classified AD on a LATER read (a delayed-
   rendering ad marker), the tracker would keep reporting POST for it,
-  since its identity never changed. Lower confidence this is a real,
-  frequent problem than P1-P5: `docs/skip_dedup_root_cause/PRD.md`'s
-  own investigation found the analogous risk was preloaded FUTURE
-  videos' markers leaking into the current read (already scoped away by
-  `currentVideoTexts`), not the CURRENT video's own classification
-  changing mid-read - no evidence yet that this actually happens for a
-  video that's genuinely still the one on screen. Not fixed here;
-  flagged so a driver-reported "an ad showed as Post in my log" isn't a
-  surprise if it happens.
+  since its identity never changed. Driver accepted shipping with this
+  limitation for now rather than solving mid-video reclassification
+  first. Lower confidence this is a real, frequent problem than P1-P5:
+  `docs/skip_dedup_root_cause/PRD.md`'s own investigation found the
+  analogous risk was preloaded FUTURE videos' markers leaking into the
+  current read (already scoped away by `currentVideoTexts`), not the
+  CURRENT video's own classification changing mid-read - no evidence
+  yet that this actually happens for a video that's genuinely still the
+  one on screen. Not fixed here; flagged so a driver-reported "an ad
+  showed as Post in my log" isn't a surprise if it happens.
 
 ## 4. Testing / verification approach
 
@@ -264,37 +274,45 @@ branch), and:
   toolchain in this sandbox - traced by hand, pushed for the real CI to
   confirm.
 
-## 5. Open questions
+## 5. Open questions - ANSWERED (driver, 2026-09-09)
 
 - **P2**: should `BLOCKED_CREATOR`/`REPEAT_VIEW` skips be their own
-  category(ies) instead of folding into Post?
+  category(ies) instead of folding into Post? **-> Yes, "separate
+  category."** See §1/§3's updated five-value `VideoCategory`.
 - **P3's 3-second Post-logging threshold** - confirm or adjust before
-  implementation, ideally against real dwell-time data.
+  implementation. **-> "Start with that"** - ship with 3s, adjust later
+  if the driver reports it's wrong.
 - **P6**: acceptable to ship with the "category only updates on an
   identity transition" limitation, or does mid-video reclassification
-  need solving first?
+  need solving first? **-> "Yes for now."**
 - Is `SkipStreakGuard`-style in-memory-only state (reset on process
   death, same as every OTHER piece of state in `TikTokFilterService`)
   acceptable for `VideoWatchTracker`, or does the in-progress video's
-  start time need to survive a service restart? (Leaning: in-memory
-  only, same as everything else in this file - an accessibility service
-  restarting mid-video already loses its own book-keeping for every
-  other feature here, this wouldn't be a new category of limitation.)
+  start time need to survive a service restart? Not re-asked this
+  round - going with the PRD's own leaning (in-memory only, same as
+  everything else in this file) since nothing in the driver's three
+  answers pushed against it; revisit if the driver flags it later.
 
 ## 6. Success criteria (implementation-phase checklist)
 
 - [x] P1 (Ad-duration-at-skip-time) resolved with a concrete design
       (§3) in this same scoping pass
-- [ ] `VideoWatchTracker` (or equivalent) added, pure/Android-free
-- [ ] `videoIdentity` computed unconditionally per event without
+- [x] `VideoWatchTracker` (or equivalent) added, pure/Android-free
+- [x] `videoIdentity` computed unconditionally per event without
       changing the existing skip-dedup guard's own behavior
-- [ ] Category classification: Ad / Post / Unidentified, per §1's
-      mapping (or an updated one per §5/P2's resolution)
-- [ ] Ad skip lines enriched with duration; Unidentified always logged;
-      Post logged only past the confirmed threshold (§2.1/P3)
-- [ ] `VideoWatchTrackerTest.kt` written and traced by hand
-- [ ] Real diagnostic log re-run by hand against the classification
-      logic and chosen threshold
+- [x] Category classification: Ad / BlockedCreator / RepeatView / Post /
+      Unidentified, per §1's updated five-way mapping
+- [x] Ad/BlockedCreator/RepeatView skip lines each enriched with
+      duration; Unidentified always logged; Post logged only past the
+      3s threshold (§2.1)
+- [x] `VideoWatchTrackerTest.kt` written and traced by hand
+- [x] Real diagnostic log re-run by hand against the classification
+      logic and chosen threshold - see PROGRESS.md. Honest caveat: the
+      log predates the word-boundary fix (docs/feed_screen_gate/
+      PRD.md), so it's a rough order-of-magnitude sanity check of real
+      transition gaps (roughly 1s to 30s+ between distinct matched
+      states), not a clean post-fix genuine-Post-duration sample - 3s
+      sits comfortably inside that range rather than at either extreme.
 - [ ] Pushed to a PR; CI green on the real commit
 - [ ] Driver confirms: a real session's Activity log shows sensible
       Ad/Post/Unidentified entries, doesn't flood out other entries,

@@ -3,11 +3,13 @@
 Run this prompt repeatedly (one iteration per invocation) until every box
 in `docs/video_category_watch_tracking/PRD.md` §6 is checked.
 
-**Do not start iterating until `docs/video_category_watch_tracking/PRD.md`
-§5's open questions (P2, P3, P6, and the persistence question) have real
-driver answers.** This PRD is DRAFT status specifically because those are
-still open - unlike this repo's other two PRDs at the time this was
-written, this one was scoped, not yet approved to implement.
+**Driver answered §5's open questions on 2026-09-09** (P2: separate
+category for BLOCKED_CREATOR/REPEAT_VIEW; P3: ship with the 3s
+threshold as-is; P6: acceptable to ship with the identity-transition
+limitation for now). The PRD is now APPROVED - this loop may iterate.
+The persistence question (in-memory-only state) was not re-asked and
+stays resolved per the PRD's own leaning (in-memory, same as every
+other piece of state in `TikTokFilterService`).
 
 ---
 
@@ -49,8 +51,9 @@ Guardrails:
   §2.1 is the approved resolution; if it turns out not to be enough,
   that's a new open question for the driver, not a unilateral change
   here.
-- Do not fold `BLOCKED_CREATOR`/`REPEAT_VIEW` into a category other
-  than what the driver's own answer to PRD §5/P2 settled on.
+- `BLOCKED_CREATOR`/`REPEAT_VIEW` are their own `VideoCategory` values
+  (PRD §5/P2's resolved answer) - do not fold them into `POST` or into
+  each other.
 - Do not touch `FilterEngine.evaluate`, `containsWholeWord`,
   `looksLikeFeedScreen`, or any other function from
   `docs/feed_screen_gate/PRD.md`'s own work - this PRD only reads their
