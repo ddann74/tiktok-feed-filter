@@ -321,3 +321,57 @@ https://github.com/ddann74/tiktok-feed-filter/actions/runs/34338486606/job/10242
 
 Remaining PRD §15 boxes: driver confirms with a real stuck episode,
 driver sign-off.
+
+## Fifth follow-up (2026-09-09): the word-boundary fix wasn't actually working - diagnostics12.log
+
+Driver confirmed they'd rebuilt/reinstalled since PR #7 and reported
+autoscroll as top priority, plus "even autoscrolls while a post is
+paused." New real log (`diagnostics12.log`) analyzed programmatically
+(not by hand, specifically to rule out transcription error given how
+high-stakes this finding is): 58 of 66 "AD matched \"Ad\"" events
+(88%) have NO real word-boundary "Ad" anywhere in their text - the
+only match is "Ad" as a substring of "Add" inside TikTok's own "Add or
+remove this video from Favourites." chrome text, the EXACT bug
+`containsWholeWord` was supposed to have already fixed.
+
+Ruled out a stale build: this same log has `RETRY 1/2`/`RETRY 2/2` and
+the updated `STUCK VIDEO` wording, both PR #7 features that cannot
+exist without PR #2's fix also being present in the same binary (PR #7
+is built on top of PR #2 in git history). So the deployed code has the
+fix, but it isn't reliably working.
+
+Best available explanation: `(?U)` (UNICODE_CHARACTER_CLASS), the
+regex flag the original fix relied on, was already flagged UNCONFIRMED
+in that PRD's own premortem ("no JVM available in this sandbox to
+actually run this") - Android's ICU-backed regex engine most likely
+doesn't honor it identically to desktop/server JVM regex, either
+throwing (silently caught by containsWholeWord's own fallback, itself
+the old substring bug) or matching incorrectly. Rather than chase the
+exact mechanism further without real-device access, rewrote
+`containsWholeWord` to not use `Regex` at all: manual `String.indexOf`
++ `Char.isLetterOrDigit()` boundary checks - a basic Unicode-aware
+character classification, not a compiled-regex Unicode flag, so it
+can't have the same class of platform-specific risk.
+
+Traced every existing `containsWholeWord`-dependent test in
+`FilterEngineTest.kt` by hand against the new implementation (word-
+boundary, punctuation-only fallback, non-Latin-script Cyrillic,
+CJK-limitation disclosure) - all still pass. Added two new tests: the
+exact real fixture from this log (confirms it doesn't match under the
+new implementation either) and a scan-forward case (an earlier
+non-boundary "Ad"-shaped substring inside "Adding", a real standalone
+"Ad" later in the same string - the loop must keep scanning past the
+miss).
+
+Also observed, documented but not fixed this round (PRD §16.3): the
+feed-screen gate (PR #6) correctly suppressed skips on what turned out
+to be the Android lock screen's clock widget during this same false-
+positive episode - good news for "outside the app," but reopens the
+still-unconfirmed question of why TikTok's own package produced that
+event at all (a second real instance of the ss5 Recents-screen
+mystery). 8 of 10 `swipe gesture CANCELLED` lines fire within ~200ms
+of a RETRY - a real, likely-meaningful correlation, flagged for a
+future round rather than guessed at now. The "autoscrolls while
+paused" report wasn't confirmed or ruled out in this specific log.
+
+Pushed for the real CI to confirm.

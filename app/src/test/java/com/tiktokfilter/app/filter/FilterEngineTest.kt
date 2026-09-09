@@ -130,6 +130,50 @@ class FilterEngineTest {
     }
 
     @Test
+    fun `an ad keyword does not match a real device fixture where only Add appears, not Ad`() {
+        // Real diagnostic log evidence (docs/feed_screen_gate/PRD.md ss16): AFTER the
+        // original regex-based word-boundary fix shipped and was confirmed rebuilt on a
+        // real device, 58 of 66 "AD matched" events in a fresh log were this exact same
+        // "Add" substring false positive - the regex fix wasn't reliably effective on
+        // that device. This fixture is the real screen text from that log (trimmed to
+        // the current video's own scope) - must not match "Ad" under the rewritten
+        // (non-regex) containsWholeWord either.
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf(
+                "Sheryl | Simple XRP Teach profile", "Follow Sheryl | Simple XRP Teach",
+                "Like video 210 likes", "Read or add comments. 60 comments",
+                "Add or remove this video from Favourites.",
+                "Sound: original sound - sherylsimplexrpteach by Sheryl | Simple XRP Teach",
+                "Share video 191 shares", "New York", "46.9K recent posts here · Explore now",
+                "Sheryl | Simple XRP Teach",
+                "Gotta cold wallet full of XRP? Crypto? Congrats! You are now locked out…more",
+                "Search · cold wallet locked out xrp", "Video"
+            ),
+            adKeywordsEnabled = true,
+            adKeywords = listOf("Ad"),
+            blockedCreatorsEnabled = false,
+            blockedCreators = emptySet()
+        )
+        assertNull(decision)
+    }
+
+    @Test
+    fun `an ad keyword matches a later standalone occurrence after an earlier non-boundary one`() {
+        // Exercises containsWholeWord's scan-forward loop directly: the first "Ad"-shaped
+        // substring in this text is inside "Adding" (not a boundary match), but a real,
+        // standalone "Ad" follows later in the same string - the loop must keep scanning
+        // past the first miss rather than stopping there.
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf("@brand_official", "Adding this now - Ad - watch till the end"),
+            adKeywordsEnabled = true,
+            adKeywords = listOf("Ad"),
+            blockedCreatorsEnabled = false,
+            blockedCreators = emptySet()
+        )
+        assertEquals(SkipReason.AD, decision?.reason)
+    }
+
+    @Test
     fun `a non-Latin-script keyword still matches as its own space-delimited word`() {
         // The JVM regex engine's \b/\w default to ASCII-only unless UNICODE_CHARACTER_CLASS
         // (the (?U) flag) is set - without it, every character of a non-Latin keyword would

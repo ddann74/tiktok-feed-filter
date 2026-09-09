@@ -795,7 +795,115 @@ once, not every ~300ms).
       runs on commit `084589e` completed with `conclusion: success`
       (https://github.com/ddann74/tiktok-feed-filter/actions/runs/34338508468/job/102423468519,
       https://github.com/ddann74/tiktok-feed-filter/actions/runs/34338486606/job/102423397047)
-- [ ] Driver confirms: a real stuck episode now shows `RETRY` log lines
+- [x] Driver confirms: a real stuck episode now shows `RETRY` log lines
       and either recovers or gives up within ~15s instead of sitting
-      stuck indefinitely
+      stuck indefinitely - `diagnostics12.log` shows RETRY 1/2, RETRY
+      2/2, then a `STUCK VIDEO - ...retried 2 time(s)` give-up, exactly
+      as designed. Root cause of that specific episode turned out to be
+      §16's bug, not a gesture failure on a real ad - see §16.
+- [ ] Driver sign-off
+
+## 16. Fifth follow-up (2026-09-09): the word-boundary fix wasn't actually working on the driver's device - `diagnostics12.log`
+
+Driver reported the autoscroll issue as the top priority, specifically
+asking "can't you filter any ads by keyword" and reporting it "even
+autoscrolls while a post is paused." Confirmed they'd rebuilt and
+reinstalled since PR #7. Supplied a fresh real diagnostic log
+(`diagnostics12.log`, 356 lines).
+
+### 16.1 The real, dominant finding: 58 of 66 "AD matched" events (88%) are the SAME false positive §1 already fixed once
+
+Classified every `AD matched "Ad"` line in this log programmatically
+(not by hand, to rule out transcription error): for each one, checked
+whether ANY element of its `texts=[...]` array contains "Ad" as a
+real, boundaried word. **58 of 66 do not** - the only "Ad"-shaped
+substring present is inside "Add" (`"Add or remove this video from
+Favourites."`, TikTok's own ubiquitous chrome text - the EXACT same
+false positive `containsWholeWord` was built to fix in ss1).
+
+Verified this is not a stale build: this log also contains `RETRY
+1/2`/`RETRY 2/2` lines and the updated `STUCK VIDEO - ...retried 2
+time(s)` wording, both PR #7 features - which cannot exist in a build
+that predates PR #2 (PR #7 is built on top of PR #2 in the same branch
+history). So the SAME binary has both the fixed `containsWholeWord`
+AND is reproducing the exact bug it was supposed to have already
+fixed.
+
+**Root cause, best available explanation (not confirmed with
+certainty - no way to attach a debugger to a real device from this
+sandbox)**: the original fix used `Regex("(?iU)\\bAd\\b")` - the
+`(?U)` (`UNICODE_CHARACTER_CLASS`) embedded regex flag. Android's
+regex engine is ICU-backed, a DIFFERENT implementation than
+desktop/server JVM's regex engine that this fix's own premortem (ss3a-
+P1) already flagged as "UNCONFIRMED beyond what's traceable by hand -
+no JVM available in this sandbox to actually run this." That
+unconfirmed risk turned out to be real: Android's engine most likely
+either throws on `(?U)` (silently caught by `containsWholeWord`'s own
+defensive fallback, which happens to be the exact old plain-substring
+check) or evaluates the boundary incorrectly - either mechanism
+reproduces the observed symptom identically, and there's no way to
+tell which from a log line alone.
+
+### 16.2 Fix: stop depending on regex `\b`/Unicode-flag behavior at all
+
+Rewrote `containsWholeWord` to do whole-word matching with plain index
+scanning (`String.indexOf(keyword, searchFrom, ignoreCase = true)`)
+plus `Char.isLetterOrDigit()` boundary checks - no `Regex` involved at
+all for this check anymore. `Char.isLetterOrDigit()` is a basic
+Unicode-aware character classification (not a compiled-regex Unicode
+boundary FLAG), so it can't have the same class of
+platform-specific-regex-engine risk, whatever the exact mechanism
+turns out to have been. Traced every existing `containsWholeWord`-
+dependent test in `FilterEngineTest.kt` by hand against the new
+implementation (word-boundary, punctuation-fallback, non-Latin-script,
+CJK-limitation-disclosure tests) - all still pass under the new logic.
+
+Added two new tests: the EXACT real fixture from this log (the
+"Sheryl | Simple XRP Teach" video, trimmed to its own scope) confirming
+it does not match "Ad" under the new implementation either, and a
+scan-forward test (an earlier non-boundary "Ad"-shaped substring inside
+"Adding", followed later by a real standalone "Ad") exercising the new
+loop's "keep scanning past a miss" logic directly.
+
+### 16.3 Also observed, not fixed this round
+
+- **The feed-screen gate (PR #6) is working**: this log's longest false-
+  positive episode ends with several `AD matched ... on a screen that
+  doesn't look like the main TikTok feed ... SKIP SUPPRESSED` lines
+  where the on-screen text is literally the Android lock screen's clock
+  widget (`"Clock, 20, 20, :, 48, 48, Wed, 9 Sept, ..."`) - the gate
+  correctly blocked the skip. Good news for the "outside the app"
+  symptom specifically.
+- **But this reopens ss5's still-unconfirmed question**: those events
+  only reached `evaluate()` at all because `packageName` passed the
+  target-package filter - meaning TikTok's own package produced an
+  accessibility event whose content is the LOCK SCREEN, not TikTok.
+  Same unexplained mechanism as the original Recents-screen leak
+  (ss1.3), a second real instance now, still not root-caused.
+- **8 of the 10 `swipe gesture CANCELLED` lines fire within ~200ms of a
+  `RETRY` line.** A real, likely-meaningful correlation (a retry's own
+  gesture dispatch failing at the OS level, distinct from the general
+  "TikTok didn't respond" case §14 already covers) - flagged for a
+  future round rather than guessed at now; needs more evidence (does
+  it also happen on the ORIGINAL, non-retry skip attempt as often?) to
+  design a fix confidently.
+- The "autoscrolls while a post is paused" report was not directly
+  confirmed or ruled out in this log - no clear evidence either way.
+  Given ss16.1's fix eliminates the single largest source of incorrect
+  skip decisions in this log, worth confirming whether that symptom
+  persists on the NEXT log before investigating further.
+
+## 17. Success criteria for §16
+
+- [x] `containsWholeWord` rewritten to not depend on `Regex`/`(?U)` at
+      all - manual `indexOf` + `Char.isLetterOrDigit()` scan
+- [x] Every existing `containsWholeWord`-dependent test traced by hand
+      against the new implementation - all still pass
+- [x] New test: the exact real `diagnostics12.log` false-positive
+      fixture does not match under the new implementation
+- [x] New test: scan-forward loop correctly finds a later real match
+      past an earlier non-boundary occurrence
+- [ ] Pushed to a PR; CI green on the real commit
+- [ ] Driver confirms: a real session shows dramatically fewer/no
+      "Add"-substring false-positive `AD matched` lines
 - [ ] Driver sign-off

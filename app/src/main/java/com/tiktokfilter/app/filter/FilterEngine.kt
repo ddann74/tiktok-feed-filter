@@ -125,14 +125,31 @@ object FilterEngine {
 
     /** Whole-word/whole-phrase match: true when [keyword] appears in [text] as its own
       * token, bounded by whitespace/punctuation or the start/end of [text] - not merely
-      * as a substring of a longer word. CONFIRMED REAL BUG this fixes (real diagnostic
-      * log, docs/feed_screen_gate/PRD.md): a driver's configured Ad Keyword "Ad" matched
-      * as a plain substring inside TikTok's own ubiquitous "Add or remove this video from
-      * Favourites." chrome text (present on nearly every video, ad or not), and inside
-      * "Add comment..." (the comments-panel input placeholder) and "Podcast Addict" (an
-      * unrelated app name on the Android Recents screen) - meaning the keyword fired on
-      * ordinary videos, an open comments panel, and even a non-TikTok screen, not just
-      * real ads. Case-insensitive, matching every other keyword check in this file.
+      * as a substring of a longer word. CONFIRMED REAL BUG this originally fixed (real
+      * diagnostic log, docs/feed_screen_gate/PRD.md ss1): a driver's configured Ad
+      * Keyword "Ad" matched as a plain substring inside TikTok's own ubiquitous "Add or
+      * remove this video from Favourites." chrome text (present on nearly every video,
+      * ad or not), and inside "Add comment..." and "Podcast Addict" - firing on ordinary
+      * videos and non-TikTok screens, not just real ads.
+      *
+      * CONFIRMED REAL BUG, ROUND TWO (docs/feed_screen_gate/PRD.md ss16): the FIRST fix
+      * for this used `Regex("(?iU)\\b...\\b")` - the `(?U)` (UNICODE_CHARACTER_CLASS)
+      * embedded flag. A real diagnostic log taken AFTER that fix shipped and was
+      * confirmed rebuilt/reinstalled on a real device showed 58 of 66 "AD matched"
+      * events (88%) were the EXACT SAME "Add" substring false positive the regex fix was
+      * supposed to have already closed - verified against the raw log bytes with a real
+      * regex engine that the fixed pattern cannot produce that match, ruling out a stale
+      * build. Most likely explanation (not confirmed with certainty - no way to attach a
+      * debugger to the driver's real device from this sandbox): Android's regex engine
+      * (ICU-backed, not the same implementation as desktop/server JVM regex) does not
+      * necessarily honor `(?U)`'s embedded-flag `\b` semantics identically - either
+      * throwing (silently caught by the fallback below, itself reproducing the exact old
+      * substring bug) or matching incorrectly. Rather than chase the exact mechanism
+      * further without real-device access, this rewrite REMOVES the regex dependency
+      * for whole-word matching entirely: manual index-scanning plus [Char.isLetterOrDigit]
+      * (a plain Unicode-aware character classification, not a compiled-regex Unicode
+      * boundary flag) can't have the same class of platform-specific behavior, whatever
+      * it turns out to have been.
       *
       * `internal`, not `private`: also reused by TikTokActionCoordinator.findAndClickNode,
       * which had the identical plain-substring bug for Block/Download menu button
@@ -140,36 +157,32 @@ object FilterEngine {
       * copies that could drift.
       *
       * A [keyword] with no letters/digits at all (e.g. the real default live-room "..."
-      * more-options button) is matched as a plain substring instead: `\b` only matches
-      * at a transition between a word character and a non-word character, so a keyword
-      * made entirely of punctuation has no well-defined word boundary to require in the
-      * first place - wrapping it in `\b...\b` would silently never match anything,
+      * more-options button) is matched as a plain substring instead - a keyword made
+      * entirely of punctuation has no letter/digit on either side to require a boundary
+      * against in the first place, so requiring one would silently never match anything,
       * turning "narrower" into "completely broken" for exactly this shape of keyword.
       *
-      * `(?U)` (UNICODE_CHARACTER_CLASS): the JVM regex engine's `\w`/`\b` default to
-      * ASCII-only (`[a-zA-Z0-9_]`) unless this is set - without it, EVERY character in a
-      * non-Latin-script keyword (Chinese/Japanese/Korean/Arabic/etc.) would be treated as
-      * a non-word character by the boundary check itself, not just by the
-      * `isLetterOrDigit()` guard above (which IS already Unicode-aware, so a script like
-      * that correctly skips the punctuation-only fallback and hits this path instead -
-      * this flag is what makes the path it hits behave correctly once it's there).
-      * UNCONFIRMED beyond what's traceable by hand: no JVM available in this sandbox to
-      * actually run a non-Latin-script test through this engine, but `(?U)` is the
-      * documented, standard fix for exactly this class of ASCII-only-by-default `\b`
-      * behavior - not a guess.
-      *
-      * Falls back to a plain substring check if [keyword] can't compile as a regex too
-      * (Regex.escape prevents that in practice, but a driver-entered keyword is untrusted
-      * input, not something to trust blindly) - never crash on it, same defensive stance
-      * this app already takes toward TikTok's own screen text. */
+      * STILL a real, NOT-solved limitation either way (regex or this manual rewrite):
+      * CJK scripts (Chinese/Japanese) have no inter-word delimiter at all, so a keyword
+      * embedded in a longer CJK phrase will always have a letter character on at least
+      * one side - "boundary" isn't a meaningful concept for those scripts the way it is
+      * for space-delimited ones, regardless of implementation. Disclosed, not fixed. */
     internal fun containsWholeWord(text: String, keyword: String): Boolean {
+        if (keyword.isEmpty()) return false
         if (keyword.none { it.isLetterOrDigit() }) {
             return text.contains(keyword, ignoreCase = true)
         }
-        return try {
-            Regex("(?iU)\\b${Regex.escape(keyword)}\\b").containsMatchIn(text)
-        } catch (e: Exception) {
-            text.contains(keyword, ignoreCase = true)
+        var searchFrom = 0
+        while (true) {
+            val idx = text.indexOf(keyword, searchFrom, ignoreCase = true)
+            if (idx == -1) return false
+            val charBefore = if (idx > 0) text[idx - 1] else null
+            val afterIndex = idx + keyword.length
+            val charAfter = if (afterIndex < text.length) text[afterIndex] else null
+            val boundaryBefore = charBefore == null || !charBefore.isLetterOrDigit()
+            val boundaryAfter = charAfter == null || !charAfter.isLetterOrDigit()
+            if (boundaryBefore && boundaryAfter) return true
+            searchFrom = idx + 1
         }
     }
 
