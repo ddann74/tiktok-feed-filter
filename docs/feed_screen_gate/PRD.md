@@ -655,7 +655,10 @@ real open question (§12) rather than rushed.
 - [x] Re-checked every `no match` line in `diagnostics11.log` lacking
       "For You" - none are genuine feed reads, no false-positive risk
       found
-- [ ] Pushed to a PR; CI green on the real commit
+- [x] Pushed to a PR; CI green on the real commit - both `build` check
+      runs on commit `9dd533e` completed with `conclusion: success`
+      (https://github.com/ddann74/tiktok-feed-filter/actions/runs/34337350604/job/102419748861,
+      https://github.com/ddann74/tiktok-feed-filter/actions/runs/34337324477/job/102419665156)
 - [ ] Driver confirms: rebuilds/reinstalls, reports whether "in the
       comments"/"outside the app" auto-scroll stops
 - [ ] Driver answers §12's two open questions

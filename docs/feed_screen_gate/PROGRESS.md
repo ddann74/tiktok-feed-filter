@@ -262,5 +262,10 @@ needed.
 
 Pushed for the real CI to confirm.
 
-Remaining PRD §13 boxes: CI confirmation, driver rebuilds/reinstalls
-and confirms, driver answers §12's two open questions, driver sign-off.
+**Confirmed green**: both `build` check runs on commit `9dd533e`
+completed with `conclusion: success`
+(https://github.com/ddann74/tiktok-feed-filter/actions/runs/34337350604/job/102419748861,
+https://github.com/ddann74/tiktok-feed-filter/actions/runs/34337324477/job/102419665156).
+
+Remaining PRD §13 boxes: driver rebuilds/reinstalls and confirms,
+driver answers §12's two open questions, driver sign-off.
