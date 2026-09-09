@@ -132,17 +132,33 @@ object FilterEngine {
       * "Add comment..." (the comments-panel input placeholder) and "Podcast Addict" (an
       * unrelated app name on the Android Recents screen) - meaning the keyword fired on
       * ordinary videos, an open comments panel, and even a non-TikTok screen, not just
-      * real ads. Case-insensitive, matching every other keyword check in this file. Falls
-      * back to a plain substring check if [keyword] can't compile as a regex
+      * real ads. Case-insensitive, matching every other keyword check in this file.
+      *
+      * `internal`, not `private`: also reused by TikTokActionCoordinator.findAndClickNode,
+      * which had the identical plain-substring bug for Block/Download menu button
+      * matching - same root cause, same fix, one shared implementation rather than two
+      * copies that could drift.
+      *
+      * A [keyword] with no letters/digits at all (e.g. the real default live-room "..."
+      * more-options button) is matched as a plain substring instead: `\b` only matches
+      * at a transition between a word character and a non-word character, so a keyword
+      * made entirely of punctuation has no well-defined word boundary to require in the
+      * first place - wrapping it in `\b...\b` would silently never match anything,
+      * turning "narrower" into "completely broken" for exactly this shape of keyword.
+      * Falls back to a plain substring check if [keyword] can't compile as a regex too
       * (Regex.escape prevents that in practice, but a driver-entered keyword is untrusted
       * input, not something to trust blindly) - never crash on it, same defensive stance
       * this app already takes toward TikTok's own screen text. */
-    private fun containsWholeWord(text: String, keyword: String): Boolean =
-        try {
+    internal fun containsWholeWord(text: String, keyword: String): Boolean {
+        if (keyword.none { it.isLetterOrDigit() }) {
+            return text.contains(keyword, ignoreCase = true)
+        }
+        return try {
             Regex("(?i)\\b${Regex.escape(keyword)}\\b").containsMatchIn(text)
         } catch (e: Exception) {
             text.contains(keyword, ignoreCase = true)
         }
+    }
 
     /** Truncates [screenTexts] to just the current video's own contiguous block - from
       * the start of the list up to (but not including) the *second* "<name> profile"

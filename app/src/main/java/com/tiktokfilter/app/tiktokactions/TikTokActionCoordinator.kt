@@ -7,6 +7,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import com.tiktokfilter.app.SettingsRepository
 import com.tiktokfilter.app.StatsRepository
 import com.tiktokfilter.app.diagnostics.DiagnosticLog
+import com.tiktokfilter.app.filter.FilterEngine
 import com.tiktokfilter.app.media.AudioExtractor
 import com.tiktokfilter.app.media.DownloadedVideoLocator
 import java.io.File
@@ -208,15 +209,21 @@ class TikTokActionCoordinator(
     }
 
     /** Depth-first search for a node whose text or contentDescription contains any of
-      * [keywords] (case-insensitive), clicking the first clickable node at or above
-      * it in the tree. Mirrors TikTokFilterService.collectText's traversal shape. */
+      * [keywords] (case-insensitive) as a whole word/phrase - not merely as a substring
+      * of a longer word (e.g. a "Block" keyword must not match inside an unrelated word
+      * containing "block"), same CONFIRMED REAL BUG class and same fix
+      * (FilterEngine.containsWholeWord) as docs/feed_screen_gate/PRD.md found for ad
+      * keyword matching - this function had the identical plain-substring pattern.
+      * Clicking the first clickable node at or above it in the tree. Mirrors
+      * TikTokFilterService.collectText's traversal shape. */
     private fun findAndClickNode(node: AccessibilityNodeInfo?, keywords: List<String>, depth: Int = 0): Boolean {
         if (node == null || depth > MAX_TREE_DEPTH || keywords.isEmpty()) return false
 
         val text = node.text?.toString().orEmpty()
         val description = node.contentDescription?.toString().orEmpty()
         val isMatch = keywords.any { keyword ->
-            keyword.isNotBlank() && (text.contains(keyword, ignoreCase = true) || description.contains(keyword, ignoreCase = true))
+            keyword.isNotBlank() &&
+                (FilterEngine.containsWholeWord(text, keyword) || FilterEngine.containsWholeWord(description, keyword))
         }
         if (isMatch) {
             val clickable = findClickableSelfOrAncestor(node)
@@ -256,7 +263,22 @@ class TikTokActionCoordinator(
       * to a background thread for the actual extraction, since remuxing shouldn't run
       * on whatever thread accessibility events arrive on. */
     private fun locateAndExtractAudio(afterEpochSeconds: Long, attempt: Int) {
-        val located = DownloadedVideoLocator.findRecentlyAddedVideo(context, afterEpochSeconds)
+        // CONFIRMED REAL GAP, found auditing the diagnostic log's own coverage:
+        // findRecentlyAddedVideo's contentResolver.query() can throw (most plausibly a
+        // SecurityException if the media-read permission was denied or later revoked in
+        // system settings) and had no guard at all - on this main-thread postDelayed
+        // callback, an uncaught exception here would crash the whole app, with nothing
+        // in the diagnostic log to explain why. A permission error also isn't something
+        // retrying fixes, so this gives up immediately rather than burning through
+        // MAX_LOCATE_ATTEMPTS uselessly against an error that will never resolve itself.
+        val located = try {
+            DownloadedVideoLocator.findRecentlyAddedVideo(context, afterEpochSeconds)
+        } catch (e: Exception) {
+            statsRepository.recordEvent("Couldn't search for the downloaded video - audio extraction skipped")
+            diagnosticLog.logError("EXTRACT", "findRecentlyAddedVideo threw on attempt $attempt", e)
+            isAudioExtractionInFlight = false
+            return
+        }
         // Elapsed-since-tap, not just the attempt index - the interval between attempts
         // isn't always exactly LOCATE_RETRY_DELAY_MILLIS (a busy main thread handling
         // TikTok's own events can delay a postDelayed callback), so the attempt count
