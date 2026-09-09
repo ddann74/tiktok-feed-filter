@@ -514,8 +514,152 @@ why.
 - [x] `onServiceConnected` logs device manufacturer/model/sdk once per
       session
 - [x] `onUnbind` override added, logs on service disconnect
-- [ ] CI green on the real commit
-- [ ] Driver confirms: a real stuck-video episode now shows a `STUCK
+- [x] CI green on the real commit - both `build` check runs on commit
+      `e1875fd` completed with `conclusion: success`
+      (https://github.com/ddann74/tiktok-feed-filter/actions/runs/34327754211/job/102388865186,
+      https://github.com/ddann74/tiktok-feed-filter/actions/runs/34327733270/job/102388792090),
+      PR #4 merged as `65bc9cf`
+- [x] Driver confirms: a real stuck-video episode now shows a `STUCK
       VIDEO` warning; a real wrong-screen match (if one still happens)
-      now shows a `WARNING:` line
+      now shows a `WARNING:` line - see §11, driver supplied
+      `diagnostics11.log` showing both firing exactly as designed
+- [ ] Driver sign-off
+
+## 11. Third follow-up (2026-09-09): "auto scroll is still happening, also in comments, also outside the app" - `diagnostics11.log`
+
+Driver reported the auto-scroll issue persisting, specifically also in
+comments and "outside of the app itself", and supplied a new real
+diagnostic log (`diagnostics11.log`, 493 lines, later timestamp than
+`diagnostics10.log`).
+
+### 11.1 IMPORTANT - possible stale build on the device
+
+Line 321-322 of this log:
+
+```
+WARNING: AD matched "Ad" on a screen that doesn't look like the main
+TikTok feed (no "For You" tab visible) - texts=[Send to, Search, Close,
+Tomy, Be(emoji)a, BullyBeef78, Honesty Doesn't Pay!, Steve, PL3THORA-,
+Repost, Repost, Messenger, Messenger, Email, Email, WhatsApp, WhatsApp,
+Copy link, Copy link, SMS, SMS, Report, Report, Not interested, Not
+interested, Add to Story, Add to Story, Duet, Duet, Stitch, Stitch,
+Create group, Create group]
+```
+
+This is TikTok's own share-to bottom sheet. The configured ad keyword
+is the literal string `"Ad"`. **Verified with a real regex engine
+(Python's `re`, not just hand-tracing)**: `\bAd\b` (case-insensitive)
+matches NOTHING in this exact text list - "Add to Story" does not
+match, since `\b` requires a non-word character after the "d", and the
+next character is another "d" (a word character). Given
+`containsWholeWord` (§1.3/§7.3, this PRD's own fix, merged in PR #2/#3)
+is exactly this check, **the current code on `main` cannot produce this
+match**. The only text in this array that could produce a plain
+substring match on `"Ad"` is `"Add to Story"` - which is precisely the
+signature of the OLD, already-fixed bug (`.contains(keyword,
+ignoreCase = true)`, no word boundary at all).
+
+**This strongly suggests the app installed on the driver's device
+predates PR #2** (commit `f045790`) and none of the fixes from PR #2,
+#3, or #4 have been rebuilt/reinstalled yet. Everything else in this
+log (the WARNING/`looksLikeFeedScreen` lines from PR #4, the STUCK
+VIDEO line from PR #4) is consistent with a build that DOES include PR
+#4 - which is only possible if PR #2/#3's earlier commits are also
+included, since PR #4 is built on top of them in the same branch
+history. The likelier explanation than "PR #4 shipped without PR #2's
+fix" (not possible via normal git history) is that the device's
+installed APK is from partway through this session and the driver
+hasn't rebuilt/reinstalled since. **Flagged prominently, not silently
+assumed**: this needs the driver to confirm, since if true, some
+fraction of what looks "still broken" in this log may already be fixed
+and just not deployed to the phone yet.
+
+### 11.2 Confirmed real, NOT explained by a stale build
+
+Two things in this log are real regardless of which build produced
+them:
+
+1. **`looksLikeFeedScreen`'s WARNING correctly fired on real off-feed
+   screens** - the share-to bottom sheet (line 321) and TikTok's own
+   comments panel (line 345 onward, matching §1.3's original finding
+   again) - both lacking "For You", both non-feed. This is the
+   diagnostic doing exactly what it was built to do (PR #4).
+2. **A ~101-second stuck-video episode** (line 1, `19:27:19` through
+   line ~318, `19:29:00`) on a REAL ad (the array contains a standalone
+   `"Ad"` element - TikTok's own ad badge, not a substring match) whose
+   skip gesture never took effect. The one-time `STUCK VIDEO` warning
+   (PR #4) fired correctly, once. The underlying gap it warns about -
+   `performSkipGesture` is fire-and-forget, never confirmed to actually
+   advance TikTok - is still NOT fixed; this is the largest single
+   stuck episode observed across either diagnostic log so far.
+
+### 11.3 Fix: `looksLikeFeedScreen` promoted from diagnostic-only to an actual skip gate
+
+§9.4/PR #4 deliberately kept this diagnostic-only, reasoning that
+whether a legitimate non-Live screen could also lack "For You" was
+unconfirmed without a real device. That risk is now much better
+evidenced: across BOTH real diagnostic logs, `looksLikeFeedScreen` is
+absent from every confirmed non-feed screen (Recents/task-switcher,
+comments panel x2, share-to bottom sheet) and present in every
+confirmed genuine feed read - checked again this round specifically:
+every `no match` line in `diagnostics11.log` that lacks "For You" is
+itself a share-sheet/loading-placeholder read, not a genuine feed
+video. No false positive found in either log.
+
+Changed `TikTokFilterService`'s `if (!isLive &&
+!FilterEngine.looksLikeFeedScreen(texts))` block from log-only to
+`return` (suppresses the skip entirely) - directly addresses the
+driver's "in the comments" and "outside the app" reports, which are
+exactly the screens this gate now blocks. Live rooms are unaffected
+either way (excluded earlier in the same function, before this check
+is reached). `FilterEngine.looksLikeFeedScreen` itself is UNCHANGED
+(same implementation, same existing tests) - only its call site's
+behavior changed, so no new `FilterEngineTest.kt` cases are needed;
+this is Android-dependent glue code in `TikTokFilterService`, same
+untestable-in-this-sandbox limitation as the rest of that file.
+
+### 11.4 Still open, NOT fixed this round: the stuck-gesture problem itself
+
+The ~101s stuck episode (§11.2) is the largest confirmed instance yet
+of `performSkipGesture`'s fire-and-forget dispatch simply not taking
+effect. A real fix (e.g., re-reading the screen shortly after a skip
+and retrying with a bounded, small number of attempts if the video
+hasn't actually changed) is a meaningfully bigger, riskier change than
+today's round - it has to interact carefully with the existing
+duplicate-skip dedup guard (`docs/skip_dedup_root_cause/PRD.md`) and
+the circuit breaker (`docs/auto_scroll_hard_stop/PRD.md`) without
+reintroducing the exact runaway-skip risk those exist to prevent.
+Deliberately NOT attempted in this round - flagged here as the next
+real open question (§12) rather than rushed.
+
+## 12. Open questions (added §11)
+
+- Has the driver rebuilt and reinstalled the app from the current
+  `main` since PR #2 merged? (§11.1) - needed before further diagnostic
+  logs can be trusted to reflect the CURRENT code rather than a stale
+  build.
+- Should `performSkipGesture` gain a bounded retry-if-still-stuck
+  mechanism (§11.4)? This is a real, evidenced gap, but a big enough
+  design question (interacts with the dedup guard and circuit breaker)
+  to deserve its own PRD pass rather than a quick fix, pending driver
+  priority.
+
+## 13. Success criteria for §11
+
+- [x] `looksLikeFeedScreen`'s doc comment updated to reflect its
+      promotion from diagnostic-only to an actual gate
+- [x] `TikTokFilterService`'s off-feed-screen check changed from
+      log-only to `return` (skip suppressed), Live rooms unaffected
+- [x] No new `FilterEngineTest.kt` cases needed - `looksLikeFeedScreen`
+      itself unchanged, existing 3 tests still cover it
+- [x] Re-checked every `no match` line in `diagnostics11.log` lacking
+      "For You" - none are genuine feed reads, no false-positive risk
+      found
+- [x] Pushed to a PR; CI green on the real commit - both `build` check
+      runs on commit `9dd533e` completed with `conclusion: success`
+      (https://github.com/ddann74/tiktok-feed-filter/actions/runs/34337350604/job/102419748861,
+      https://github.com/ddann74/tiktok-feed-filter/actions/runs/34337324477/job/102419665156)
+- [ ] Driver confirms: rebuilds/reinstalls, reports whether "in the
+      comments"/"outside the app" auto-scroll stops
+- [ ] Driver answers §12's two open questions
 - [ ] Driver sign-off

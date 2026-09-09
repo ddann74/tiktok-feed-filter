@@ -293,16 +293,19 @@ class TikTokFilterService : AccessibilityService() {
             diagnosticLog.log("FILTER", "${decision.reason} matched \"${decision.detail}\" on a Live stream but live-skip is disabled - texts=$texts")
             return
         }
-        // CONFIRMED REAL GAP, found auditing the diagnostic log's own coverage: a real
-        // log showed this exact matched-and-about-to-skip path fire on the Android
-        // Recents/task-switcher screen (not TikTok at all) and on TikTok's own comments
-        // panel while it was open - see docs/feed_screen_gate/PRD.md ss1.3. Diagnostic-
-        // only (see FilterEngine.looksLikeFeedScreen's own doc for why this doesn't
-        // block the skip) - just makes a wrong-screen match as visible in the log as a
-        // right-screen one already is, rather than needing a driver-supplied log to
-        // notice it happened at all.
+        // CONFIRMED REAL GAP, escalated to an actual gate here (docs/feed_screen_gate/
+        // PRD.md ss11): TWO separate real diagnostic logs showed this exact
+        // matched-and-about-to-skip path fire on screens that aren't the main TikTok
+        // feed at all - the Android Recents/task-switcher screen (ss1.3), TikTok's own
+        // comments panel (both logs), and TikTok's own share-to bottom sheet (ss11) -
+        // directly matching driver-reported "auto scroll ... in the comments ...
+        // outside the app" symptoms. Was diagnostic-only (WARNING, never blocked)
+        // through PR #4; see FilterEngine.looksLikeFeedScreen's own doc for why it's
+        // now safe to actually suppress the skip instead. Live rooms are unaffected -
+        // already excluded above, before this line is ever reached.
         if (!isLive && !FilterEngine.looksLikeFeedScreen(texts)) {
-            diagnosticLog.log("FILTER", "WARNING: ${decision.reason} matched \"${decision.detail}\" on a screen that doesn't look like the main TikTok feed (no \"For You\" tab visible) - texts=$texts")
+            diagnosticLog.log("FILTER", "${decision.reason} matched \"${decision.detail}\" on a screen that doesn't look like the main TikTok feed (no \"For You\" tab visible) - SKIP SUPPRESSED - texts=$texts")
+            return
         }
         // A best-effort "which video is this" identity - see FilterEngine.videoIdentity's
         // own doc for why this is no longer a raw `extractHandle(...) ?: texts.firstOrNull()`

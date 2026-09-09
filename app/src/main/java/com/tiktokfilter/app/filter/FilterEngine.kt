@@ -204,21 +204,25 @@ object FilterEngine {
     fun normalizeHandle(handle: String): String =
         handle.trim().removePrefix("@").lowercase()
 
-    /** Best-effort, DIAGNOSTIC-ONLY signal that [screenTexts] looks like TikTok's own main
-      * feed scaffold - checked for "For You", the literal tab label confirmed present in
-      * every genuine feed read in the real diagnostic log that found this whole class of
-      * bug (docs/feed_screen_gate/PRD.md), and confirmed ABSENT from both of that log's
-      * confirmed non-feed false positives (the comments panel, and the Android
-      * Recents/task-switcher screen - see PRD ss1.3/ss5). This does NOT gate or suppress
-      * anything - it is deliberately never wired into [evaluate] or any skip decision.
-      * PRD ss5's own open question (why a non-TikTok screen's accessibility event passed
-      * the target-package filter at all) is still unconfirmed, and whether a Live room or
-      * some other legitimate screen this app hasn't seen a real log from also lacks "For
-      * You" is untested without a real device - using this to actually BLOCK a skip risks
-      * silently disabling real ad/blocked-creator filtering on a screen this was wrong
-      * about, which is a worse failure than the one it would be catching. Logging-only
-      * keeps the same asymmetry the rest of this PRD relies on: if this signal is ever
-      * wrong, that's exactly as visible in the log as the bug it's meant to help catch. */
+    /** Best-effort signal that [screenTexts] looks like TikTok's own main feed scaffold -
+      * checked for "For You", the literal tab label. Was DIAGNOSTIC-ONLY through
+      * docs/feed_screen_gate/PRD.md ss10 (PR #4) - deliberately never wired into
+      * [evaluate] or any skip decision, since whether a Live room or some other
+      * legitimate screen also lacks "For You" was untested without a real device, and
+      * using this to BLOCK a skip risked silently disabling real ad/blocked-creator
+      * filtering on a screen this was wrong about.
+      *
+      * PROMOTED to an actual skip gate at TikTokFilterService's own call site (PRD
+      * ss11), now that TWO separate real diagnostic logs confirm this label is present
+      * in every genuine feed read and absent from every confirmed non-feed screen seen
+      * so far: the comments panel and the Android Recents/task-switcher screen (ss1.3/
+      * ss5, the original log), and TikTok's own share-to bottom sheet plus the comments
+      * panel again (ss11, a second log) - with driver-reported "auto scroll ... in the
+      * comments ... outside the app" symptoms matching those exact screens. No confirmed
+      * false positive (a legitimate screen wrongly missing "For You") has been observed
+      * across either log. Live rooms are excluded from the gate entirely, independent of
+      * this signal (checked and returned on before the gate's own call site is reached),
+      * so this promotion doesn't touch that still-untested case at all. */
     fun looksLikeFeedScreen(screenTexts: List<String>): Boolean =
         screenTexts.any { it.equals("For You", ignoreCase = true) }
 
