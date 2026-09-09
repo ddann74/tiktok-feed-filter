@@ -60,6 +60,57 @@ class FilterEngineTest {
     }
 
     @Test
+    fun `an ad keyword does not match when it only appears inside a longer word`() {
+        // CONFIRMED REAL BUG, real diagnostic log (docs/feed_screen_gate/PRD.md ss1.2/
+        // ss1.3): a driver's short "Ad" keyword matched as a plain substring inside
+        // TikTok's own "Add or remove this video from Favourites." chrome text, which is
+        // present on nearly every video (ad or not) - firing on ordinary content, not
+        // just real ads.
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf(
+                "@brand_official", "a completely normal caption",
+                "Add or remove this video from Favourites."
+            ),
+            adKeywordsEnabled = true,
+            adKeywords = listOf("Ad"),
+            blockedCreatorsEnabled = false,
+            blockedCreators = emptySet()
+        )
+        assertNull(decision)
+    }
+
+    @Test
+    fun `an ad keyword still matches its own standalone list element`() {
+        // The real shape a genuine TikTok ad badge takes in the flat text list, per the
+        // same log ("..., Ad, Learn more, Video, ...") - must keep working after the
+        // word-boundary fix above.
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf("@brand_official", "Check out our new product!", "Ad", "Learn more"),
+            adKeywordsEnabled = true,
+            adKeywords = listOf("Ad"),
+            blockedCreatorsEnabled = false,
+            blockedCreators = emptySet()
+        )
+        assertEquals(SkipReason.AD, decision?.reason)
+        assertEquals("Ad", decision?.detail)
+    }
+
+    @Test
+    fun `an ad keyword phrase still matches embedded in a longer sentence at a punctuation boundary`() {
+        // Same word-boundary logic, exercised against punctuation rather than whitespace
+        // on both sides - not just the already-covered "Ad starts in 5s" (space-bounded)
+        // case above.
+        val decision = FilterEngine.evaluate(
+            screenTexts = listOf("@brand_official", "This is (Sponsored) content"),
+            adKeywordsEnabled = true,
+            adKeywords = listOf("Sponsored"),
+            blockedCreatorsEnabled = false,
+            blockedCreators = emptySet()
+        )
+        assertEquals(SkipReason.AD, decision?.reason)
+    }
+
+    @Test
     fun `blocked creator handle fires BLOCKED_CREATOR`() {
         val decision = FilterEngine.evaluate(
             screenTexts = listOf("@annoying_account", "some caption text", "42 comments"),
@@ -271,6 +322,26 @@ class FilterEngineTest {
             subjectKeywords = emptyList()
         )
         assertEquals(false, matches)
+    }
+
+    @Test
+    fun `a subject keyword does not match when it only appears inside a longer word`() {
+        // Same class of bug as the ad-keyword fix above, same fix (containsWholeWord) -
+        // "art" must not match inside "party".
+        val matches = FilterEngine.matchesSubject(
+            screenTexts = listOf("SomeCreator profile", "a caption about the party scene"),
+            subjectKeywords = listOf("art")
+        )
+        assertEquals(false, matches)
+    }
+
+    @Test
+    fun `a subject keyword still matches as its own word inside a longer caption`() {
+        val matches = FilterEngine.matchesSubject(
+            screenTexts = listOf("SomeCreator profile", "I love art museums"),
+            subjectKeywords = listOf("art")
+        )
+        assertEquals(true, matches)
     }
 
     @Test
